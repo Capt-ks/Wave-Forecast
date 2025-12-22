@@ -25,11 +25,15 @@ jobs:
       - name: Fetch 7‑Day Wave Forecast (PR + USVI)
         run: |
           python3 << 'EOF'
-          import requests, json, os
+          import requests, json
 
-          # NOAA/NWS Marine Forecast API (Caribbean Waters)
           url = "https://api.weather.gov/gridpoints/SJU/103,45/forecast"
-          data = requests.get(url, headers={"User-Agent": "RabirubiaWeather"}).json()
+          headers = {"User-Agent": "RabirubiaWeather"}
+
+          try:
+              data = requests.get(url, headers=headers, timeout=20).json()
+          except Exception as e:
+              data = {"error": str(e)}
 
           with open("wave_data.json", "w") as f:
               json.dump(data, f, indent=2)
@@ -38,24 +42,34 @@ jobs:
       - name: Generate Wave Forecast Image Card
         run: |
           python3 << 'EOF'
-          import json, random
+          import json, random, os
           from datetime import datetime
-          from PIL import Image, ImageDraw, ImageFont, ImageFilter
+          from PIL import Image, ImageDraw, ImageFont
 
           # Load forecast
           with open("wave_data.json") as f:
               data = json.load(f)
 
-          periods = data["properties"]["periods"][:14]  # 7 days (AM/PM)
+          # Extract periods safely
+          periods = []
+          try:
+              periods = data["properties"]["periods"][:14]  # 7 days (AM/PM)
+          except:
+              periods = []
+
+          # Build day summaries
           days = {}
-
           for p in periods:
-              day = p["name"].split()[0]
-              if day not in days:
-                  days[day] = p["detailedForecast"]
+              name = p["name"].split()[0]
+              if name not in days:
+                  days[name] = p["detailedForecast"]
 
-          # Marine backgrounds (rotate randomly)
-          marine_backgrounds = [
+          # Ensure at least placeholder text
+          if not days:
+              days = {"Forecast": "Wave data unavailable at this time."}
+
+          # Background rotation
+          backgrounds = [
               "assets/marine_bg1.jpg",
               "assets/marine_bg2.jpg",
               "assets/marine_bg3.jpg",
@@ -63,45 +77,68 @@ jobs:
               "assets/marine_bg5.jpg"
           ]
 
-          bg_path = random.choice(marine_backgrounds)
-          bg = Image.open(bg_path).convert("RGBA")
-          bg = bg.resize((1200, 1600))  # Responsive base
+          bg_path = None
+          for b in backgrounds:
+              if os.path.exists(b):
+                  bg_path = b
+                  break
+
+          # Fallback background
+          if not bg_path:
+              bg = Image.new("RGB", (1080, 1350), (0, 70, 140))
+          else:
+              bg = Image.open(bg_path).convert("RGB")
+
+          bg = bg.resize((1080, 1350))
 
           draw = ImageDraw.Draw(bg)
 
-          # RabirubiaWeather brand colors
+          # Fonts
+          try:
+              font_header = ImageFont.truetype("arial.ttf", 70)
+              font_sub = ImageFont.truetype("arial.ttf", 40)
+              font_body = ImageFont.truetype("arial.ttf", 32)
+              font_disclaimer = ImageFont.truetype("arial.ttf", 24)
+          except:
+              font_header = ImageFont.load_default()
+              font_sub = ImageFont.load_default()
+              font_body = ImageFont.load_default()
+              font_disclaimer = ImageFont.load_default()
+
+          # Brand colors
           brand_blue = (0, 102, 204)
           brand_gold = (255, 204, 0)
           white = (255, 255, 255)
 
-          # Header
-          draw.rectangle([(0,0),(1200,180)], fill=brand_blue)
-          draw.text((40, 50), "RabirubiaWeather", fill=white, size=72)
-          draw.text((40, 120), "7‑Day Wave Forecast • PR & USVI", fill=brand_gold, size=42)
+          # Header bar
+          draw.rectangle([(0, 0), (1080, 180)], fill=brand_blue)
+          draw.text((40, 40), "RabirubiaWeather", fill=white, font=font_header)
+          draw.text((40, 130), "7‑Day Wave Forecast • PR & USVI", fill=brand_gold, font=font_sub)
 
           # Forecast text
-          y = 250
+          y = 240
           for day, forecast in days.items():
-              draw.text((60, y), f"{day}: {forecast}", fill=white, size=36)
-              y += 140
+              draw.text((50, y), f"{day}: {forecast}", fill=white, font=font_body)
+              y += 120
 
           # Disclaimer
-          draw.text(
-              (40, 1500),
+          disclaimer = (
               "Maps and information intended for informational purposes only! "
               "For Emergency situations and/or decisions, please refer to your "
-              "local Emergency Management Office and/or the National Weather Service.",
-              fill=white,
-              size=28
+              "local Emergency Management Office and/or the National Weather Service."
           )
 
-          bg.save("wave_forecast_card.png", optimize=True)
+          draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
+
+          # Save output
+          os.makedirs("generated", exist_ok=True)
+          bg.save("generated/wave_forecast_card.png", optimize=True)
           EOF
 
       - name: Commit updated card
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add wave_forecast_card.png
-          git commit -m "Auto-update wave forecast card"
+          git add generated/wave_forecast_card.png
+          git commit -m "Auto-update wave forecast card" || echo "No changes to commit"
           git push
