@@ -1,136 +1,63 @@
-name: Wave Forecast Card Generator (GitHub Pages)
+name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: '0 */6 * * *'   # Every 6 hours
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 jobs:
-  build:
+  generate-and-commit-image:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Install ImageMagick and jq
+        run: sudo apt-get update && sudo apt-get install -y imagemagick jq
 
-      - name: Install dependencies
+      - name: Download logo
         run: |
-          pip install requests pillow numpy matplotlib
+          curl -o logo.png "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png"
 
-      - name: Fetch 7‑Day Wave Forecast (PR + USVI)
+      - name: Download random marine background
         run: |
-          python3 << 'EOF'
-          import requests, json
-
-          url = "https://api.weather.gov/gridpoints/SJU/103,45/forecast"
-          headers = {"User-Agent": "RabirubiaWeather"}
-
-          try:
-              data = requests.get(url, headers=headers, timeout=20).json()
-          except Exception as e:
-              data = {"error": str(e)}
-
-          with open("wave_data.json", "w") as f:
-              json.dump(data, f, indent=2)
-          EOF
-
-      - name: Generate Wave Forecast Image Card
-        run: |
-          python3 << 'EOF'
-          import json, random, os
-          from PIL import Image, ImageDraw, ImageFont
-
-          with open("wave_data.json") as f:
-              data = json.load(f)
-
-          periods = []
-          try:
-              periods = data["properties"]["periods"][:14]
-          except:
-              periods = []
-
-          days = {}
-          for p in periods:
-              name = p["name"].split()[0]
-              if name not in days:
-                  days[name] = p["detailedForecast"]
-
-          if not days:
-              days = {"Forecast": "Wave data unavailable at this time."}
-
-          backgrounds = [
-              "assets/marine_bg1.jpg",
-              "assets/marine_bg2.jpg",
-              "assets/marine_bg3.jpg",
-              "assets/marine_bg4.jpg",
-              "assets/marine_bg5.jpg"
-          ]
-
-          bg_path = next((b for b in backgrounds if os.path.exists(b)), None)
-
-          if not bg_path:
-              bg = Image.new("RGB", (1080, 1350), (0, 70, 140))
-          else:
-              bg = Image.open(bg_path).convert("RGB")
-
-          bg = bg.resize((1080, 1350))
-          draw = ImageDraw.Draw(bg)
-
-          try:
-              font_header = ImageFont.truetype("arial.ttf", 70)
-              font_sub = ImageFont.truetype("arial.ttf", 40)
-              font_body = ImageFont.truetype("arial.ttf", 32)
-              font_disclaimer = ImageFont.truetype("arial.ttf", 24)
-          except:
-              font_header = font_sub = font_body = font_disclaimer = ImageFont.load_default()
-
-          brand_blue = (0, 102, 204)
-          brand_gold = (255, 204, 0)
-          white = (255, 255, 255)
-
-          draw.rectangle([(0, 0), (1080, 180)], fill=brand_blue)
-          draw.text((40, 40), "RabirubiaWeather", fill=white, font=font_header)
-          draw.text((40, 130), "7‑Day Wave Forecast • PR & USVI", fill=brand_gold, font=font_sub)
-
-          y = 240
-          for day, forecast in days.items():
-              draw.text((50, y), f"{day}: {forecast}", fill=white, font=font_body)
-              y += 120
-
-          disclaimer = (
-              "Maps and information intended for informational purposes only! "
-              "For Emergency situations and/or decisions, please refer to your "
-              "local Emergency Management Office and/or the National Weather Service."
+          BG_LIST=(
+            "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
+            "https://images.unsplash.com/photo-1500375592092-40eb2168fd21"
+            "https://images.unsplash.com/photo-1501959915551-4e8a04a3f9a6"
+            "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
+            "https://images.unsplash.com/photo-1493558103817-58b2924bce98"
           )
+          URL=${BG_LIST[$RANDOM % ${#BG_LIST[@]}]}
+          curl -L "$URL" -o background.jpg
 
-          draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
+      - name: Fetch NOAA Marine Forecast and generate card
+        run: |
+          # Fetch 7-day marine forecast (PR & USVI)
+          DATA=$(curl -s "https://api.weather.gov/gridpoints/SJU/103,45/forecast")
+          PERIODS=$(echo "$DATA" | jq -r '.properties.periods[0:7][] | "\(.name): \(.detailedForecast)"')
 
-          os.makedirs("public", exist_ok=True)
-          bg.save("public/wave_forecast_card.png", optimize=True)
-          EOF
+          # Format forecast into multiline text
+          FORECAST=$(echo "$PERIODS" | sed ':a;N;$!ba;s/\n/\\n/g')
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
+          # Generate card
+          convert background.jpg -resize 800x800^ -gravity center -crop 800x800+0+0 +repage \
+            -fill 'rgba(0,0,0,0.35)' -draw "rectangle 0,0 800,800" \
+            \( logo.png -resize 120x120 \) -gravity NorthWest -geometry +40+40 -composite \
+            -fill white -font DejaVu-Sans-Bold -pointsize 48 -gravity NorthWest -annotate +170+70 "RabirubiaWeather" \
+            -fill white -pointsize 60 -gravity center -annotate +0-200 "Wave Forecast" \
+            -fill white -pointsize 40 -gravity center -annotate +0-120 "Puerto Rico & USVI" \
+            -fill white -font DejaVu-Sans -pointsize 28 -gravity center -annotate +0+40 "$FORECAST" \
+            -fill '#a0e4ff' -pointsize 22 -gravity South -annotate +0+20 "NOAA Marine Forecast | RabirubiaWeather" \
+            wave_card.png
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Commit and push updated image
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wave_card.png
+          git commit -m "Auto-update wave forecast card image" || echo "No changes to commit"
+          git push
