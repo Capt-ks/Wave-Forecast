@@ -29,13 +29,13 @@ jobs:
           python3 << 'EOF'
           import requests, textwrap
           from PIL import Image, ImageDraw, ImageFont
-          import io, os
+          import io
 
           # Fetch NOAA forecast
           url = "https://api.weather.gov/gridpoints/SJU/103,45/forecast"
           try:
               data = requests.get(url, timeout=20).json()
-              periods = data["properties"]["periods"][:7]
+              periods = data.get("properties", {}).get("periods", [])[:7]
           except:
               periods = []
 
@@ -47,19 +47,17 @@ jobs:
               for p in periods:
                   name = p.get("name", "Day")
                   desc = p.get("detailedForecast", "")
-                  wrapped = textwrap.fill(f"{name}: {desc}", width=40)
+                  desc = desc.replace("“", "\"").replace("”", "\"").replace("’", "'")
+                  wrapped = textwrap.fill(f"{name}: {desc}", width=42)
                   lines.append(wrapped)
               forecast_text = "\n\n".join(lines)
 
           # Download background
-          bg_urls = [
-              "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
-              "https://images.unsplash.com/photo-1500375592092-40eb2168fd21",
-              "https://images.unsplash.com/photo-1501959915551-4e8a04a3f9a6",
-              "https://images.unsplash.com/photo-1493558103817-58b2924bce98"
-          ]
           try:
-              bg_data = requests.get(bg_urls[0], timeout=20).content
+              bg_data = requests.get(
+                  "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+                  timeout=20
+              ).content
               bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
           except:
               bg = Image.new("RGB", (800, 800), "#004488")
@@ -78,10 +76,10 @@ jobs:
 
           logo = logo.resize((120, 120))
 
-          # Draw card
-          draw = ImageDraw.Draw(bg)
+          # Draw overlay
           overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
           bg = Image.alpha_composite(bg.convert("RGBA"), overlay)
+          draw = ImageDraw.Draw(bg)
 
           # Fonts
           try:
@@ -95,14 +93,29 @@ jobs:
           # Place logo
           bg.paste(logo, (40, 40), logo)
 
-          # Text
+          # Titles
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
-          draw.text((400, 200), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
-          draw.text((400, 260), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
+          draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
+          draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          draw.multiline_text((400, 420), forecast_text, fill="white", font=font_body, anchor="mm", align="center")
+          # Forecast text (LEFT aligned, fixed Y)
+          draw.multiline_text(
+              (80, 300),
+              forecast_text,
+              fill="white",
+              font=font_body,
+              align="left",
+              spacing=8
+          )
 
-          draw.text((400, 760), "NOAA Marine Forecast | RabirubiaWeather", fill="#a0e4ff", font=font_footer, anchor="mm")
+          # Footer
+          draw.text(
+              (400, 760),
+              "NOAA Marine Forecast | RabirubiaWeather",
+              fill="#a0e4ff",
+              font=font_footer,
+              anchor="mm"
+          )
 
           # Save
           bg.convert("RGB").save("wave_card.png", optimize=True)
