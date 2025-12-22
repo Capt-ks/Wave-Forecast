@@ -2,7 +2,7 @@ name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,20 +28,25 @@ jobs:
             "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
             "https://images.unsplash.com/photo-1500375592092-40eb2168fd21"
             "https://images.unsplash.com/photo-1501959915551-4e8a04a3f9a6"
-            "https://images.unsplash.com/photo-1507525428034-b723cf961d3e"
             "https://images.unsplash.com/photo-1493558103817-58b2924bce98"
           )
           URL=${BG_LIST[$RANDOM % ${#BG_LIST[@]}]}
-          curl -L "$URL" -o background.jpg
+          curl -L "$URL" -o background.jpg || cp fallback.jpg background.jpg
 
       - name: Fetch NOAA Marine Forecast and generate card
         run: |
-          # Fetch 7-day marine forecast (PR & USVI)
           DATA=$(curl -s "https://api.weather.gov/gridpoints/SJU/103,45/forecast")
-          PERIODS=$(echo "$DATA" | jq -r '.properties.periods[0:7][] | "\(.name): \(.detailedForecast)"')
 
-          # Format forecast into multiline text
-          FORECAST=$(echo "$PERIODS" | sed ':a;N;$!ba;s/\n/\\n/g')
+          # Extract 7 periods safely
+          PERIODS=$(echo "$DATA" | jq -r '.properties.periods[0:7][]? | "\(.name): \(.detailedForecast)"')
+
+          # Fallback if NOAA fails
+          if [ -z "$PERIODS" ]; then
+            PERIODS="Forecast unavailable at this time."
+          fi
+
+          # Wrap text to avoid ImageMagick crash
+          echo "$PERIODS" | fold -s -w 40 > forecast.txt
 
           # Generate card
           convert background.jpg -resize 800x800^ -gravity center -crop 800x800+0+0 +repage \
@@ -50,7 +55,7 @@ jobs:
             -fill white -font DejaVu-Sans-Bold -pointsize 48 -gravity NorthWest -annotate +170+70 "RabirubiaWeather" \
             -fill white -pointsize 60 -gravity center -annotate +0-200 "Wave Forecast" \
             -fill white -pointsize 40 -gravity center -annotate +0-120 "Puerto Rico & USVI" \
-            -fill white -font DejaVu-Sans -pointsize 28 -gravity center -annotate +0+40 "$FORECAST" \
+            -fill white -font DejaVu-Sans -pointsize 28 -gravity center -annotate +0+40 "@forecast.txt" \
             -fill '#a0e4ff' -pointsize 22 -gravity South -annotate +0+20 "NOAA Marine Forecast | RabirubiaWeather" \
             wave_card.png
 
