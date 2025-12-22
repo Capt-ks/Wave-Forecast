@@ -1,12 +1,17 @@
-name: Wave Forecast Card Generator
+name: Wave Forecast Card Generator (GitHub Pages)
 
 on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
-  generate-wave-card:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -110,13 +115,23 @@ jobs:
 
           draw.text((40, 1250), disclaimer, fill=white, font=font_disclaimer)
 
-          os.makedirs("output", exist_ok=True)
-          bg.save("output/wave_forecast_card.png", optimize=True)
+          os.makedirs("public", exist_ok=True)
+          bg.save("public/wave_forecast_card.png", optimize=True)
           EOF
 
-      - name: Upload Wave Card Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: wave-card-latest
-          path: output/wave_forecast_card.png
-          retention-days: 7
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
