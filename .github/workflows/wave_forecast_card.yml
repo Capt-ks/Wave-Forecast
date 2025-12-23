@@ -114,7 +114,7 @@ jobs:
                   forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
           # ---------------------------------------------------------
-          # BACKGROUND (BRIGHTER)
+          # BACKGROUND (BALANCED)
           # ---------------------------------------------------------
           try:
               bg_data = requests.get(
@@ -127,12 +127,12 @@ jobs:
 
           bg = bg.resize((800, 800))
 
-          # Brighten background
+          # Slight brightness boost (not washed out)
           enhancer = ImageEnhance.Brightness(bg)
-          bg = enhancer.enhance(1.35)
+          bg = enhancer.enhance(1.12)
 
-          # Soft white overlay
-          overlay = Image.new("RGBA", bg.size, (255, 255, 255, 80))
+          # Very soft white overlay
+          overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
           card = Image.alpha_composite(bg.convert("RGBA"), overlay)
 
           draw = ImageDraw.Draw(card)
@@ -162,18 +162,21 @@ jobs:
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
+          # Dark marine text color
+          TEXT = "#0a1a2f"
+
           # ---------------------------------------------------------
           # DRAW CARD
           # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
-          draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
-          draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
-          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill="white", font=font_sub, anchor="mm")
+          draw.text((170, 60), "RabirubiaWeather", fill=TEXT, font=font_title)
+          draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
+          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill=TEXT, font=font_sub, anchor="mm")
 
           draw.multiline_text(
               (80, 300),
               forecast_text,
-              fill="white",
+              fill=TEXT,
               font=font_body,
               align="left",
               spacing=10
@@ -182,7 +185,7 @@ jobs:
           draw.text(
               (400, 760),
               "NDBC Marine Forecast | RabirubiaWeather",
-              fill="#003f5c",
+              fill=TEXT,
               font=font_footer,
               anchor="mm"
           )
