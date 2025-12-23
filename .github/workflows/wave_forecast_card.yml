@@ -89,6 +89,10 @@ jobs:
 
                   final_lines = []
                   for label, txt in cleaned:
+                  # Rename the first forecast period to "Currently"
+                  if not final_lines:
+                  label = "Currently"
+
                       m = re.search(
                           r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
                           txt,
