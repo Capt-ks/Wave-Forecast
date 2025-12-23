@@ -1,4 +1,30 @@
-- name: Generate Wave Forecast Card
+name: Update Wave Forecast Card Image
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  generate-and-commit-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install pillow requests
+
+      - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
           import requests, textwrap, re
@@ -10,19 +36,22 @@
               "Accept": "application/geo+json, application/json"
           }
 
+          # ---------------------------------------------------------
+          # FETCH & CLEAN NOAA MARINE FORECAST (MIM PRODUCT)
+          # ---------------------------------------------------------
           def get_forecast_text():
               fallback = "Marine forecast temporarily unavailable. Please refer directly to NWS Marine Weather."
 
               try:
-                  # 1) Get latest Marine (MIM) product for SJU
+                  # 1) Get latest MIM product for SJU
                   r_list = requests.get(
                       "https://api.weather.gov/products/types/MIM/locations/SJU",
                       headers=HEADERS,
                       timeout=20
                   )
                   r_list.raise_for_status()
-
                   plist = r_list.json()
+
                   products = plist.get("products") or []
                   if not products:
                       return fallback
@@ -31,26 +60,26 @@
                   if not pid:
                       return fallback
 
-                  # 2) Get the product text
+                  # 2) Fetch the product text
                   r_prod = requests.get(
                       f"https://api.weather.gov/products/{pid}",
                       headers=HEADERS,
                       timeout=20
                   )
                   r_prod.raise_for_status()
-
                   prod = r_prod.json()
-                  raw_text = prod.get("productText", "")
-                  if not raw_text:
+
+                  raw = prod.get("productText", "")
+                  if not raw:
                       return fallback
 
-                  # 3) Sanitize
-                  text = raw_text.replace("\r", "")
+                  # 3) Sanitize text
+                  text = raw.replace("\r", "")
                   text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
                   text = re.sub(r"\s+", " ", text).strip()
 
-                  # 4) Remove header block (NOAA metadata)
-                  # Find first marine zone header like "AMZ7"
+                  # 4) Remove NOAA header block
+                  # Look for first marine zone header like "AMZ7xx"
                   m = re.search(r"(AMZ\d{3}.*?)$", text)
                   if m:
                       text = m.group(1)
@@ -58,7 +87,7 @@
                   # 5) Limit length
                   text = text[:1500]
 
-                  # 6) Wrap
+                  # 6) Wrap for card
                   wrapped = textwrap.fill(text, width=42)
                   return wrapped or fallback
 
@@ -67,11 +96,11 @@
                   traceback.print_exc()
                   return fallback
 
-          # === The rest of the script stays the same ===
-
           forecast_text = get_forecast_text()
 
-          # Background
+          # ---------------------------------------------------------
+          # BACKGROUND IMAGE
+          # ---------------------------------------------------------
           try:
               bg_data = requests.get(
                   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
@@ -83,7 +112,9 @@
 
           bg = bg.resize((800, 800))
 
-          # Logo
+          # ---------------------------------------------------------
+          # LOGO
+          # ---------------------------------------------------------
           try:
               logo_data = requests.get(
                   "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
@@ -95,10 +126,12 @@
 
           logo = logo.resize((120, 120))
 
-          # Overlay
+          # ---------------------------------------------------------
+          # DRAW CARD
+          # ---------------------------------------------------------
           overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
-          bg = Image.alpha_composite(bg.convert("RGBA"), overlay)
-          draw = ImageDraw.Draw(bg)
+          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
+          draw = ImageDraw.Draw(card)
 
           # Fonts
           try:
@@ -110,11 +143,12 @@
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
           # Header
+          card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          # Forecast text
+          # Forecast text block
           draw.multiline_text(
               (80, 300),
               forecast_text,
@@ -133,6 +167,20 @@
               anchor="mm"
           )
 
-          bg.convert("RGB").save("wave_card.png", optimize=True)
+          # Save final card
+          card.convert("RGB").save("wave_card.png", optimize=True)
           print("Saved wave_card.png")
           EOF
+
+      - name: Commit and push updated image
+        run: |
+          if [ ! -f wave_card.png ]; then
+            echo "ERROR: wave_card.png not found — aborting commit"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add wave_card.png
+          git commit -m "Auto-update wave forecast card image" || echo "No changes to commit"
+          git push
