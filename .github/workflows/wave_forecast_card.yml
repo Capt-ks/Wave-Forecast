@@ -203,7 +203,7 @@ jobs:
 
           draw.text(
               (400, 760),
-              "NDBC Marine Forecast | RabirubiaWeather",
+              "NDBC Marine Forecast | RabirubiaWeather.com",
               fill="#a0e4ff",
               font=font_footer,
               anchor="mm"
