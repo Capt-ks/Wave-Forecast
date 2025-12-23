@@ -24,10 +24,11 @@ jobs:
         run: |
           pip install pillow requests beautifulsoup4
 
-      - name: Generate Wave Forecast Card (with debug)
+      - name: Generate Wave Forecast Card (HTML-aware)
         run: |
           python3 << 'EOF'
-          import requests, re, textwrap
+          import requests, re
+          from bs4 import BeautifulSoup
           from PIL import Image, ImageDraw, ImageFont
           import io, traceback
 
@@ -35,128 +36,113 @@ jobs:
           ZONE = "AMZ712"
           FALLBACK = "Wave forecast temporarily unavailable."
 
-          print("\n===== FETCHING NDBC FORECAST =====")
+          print("\n===== FETCHING NDBC =====")
+          try:
+              r = requests.get(URL, timeout=20)
+              r.raise_for_status()
+              html = r.text
+              print("Fetch OK\n")
+          except Exception as e:
+              print("Fetch error:", e)
+              html = None
 
-          def fetch_ndbc():
-              try:
-                  r = requests.get(URL, timeout=20)
-                  r.raise_for_status()
-                  print("NDBC fetch OK\n")
-                  return r.text
-              except Exception as e:
-                  print("NDBC fetch error:", e)
-                  traceback.print_exc()
-                  return None
+          if not html:
+              forecast_text = FALLBACK
+          else:
+              print("===== PARSING HTML =====")
+              soup = BeautifulSoup(html, "html.parser")
 
-          def extract_zone_block(text):
-              print("===== EXTRACTING ZONE BLOCK =====")
+              # Extract all text
+              text = soup.get_text("\n")
+              print("HTML stripped\n")
+
+              # Extract AMZ712 block
+              print("===== EXTRACTING AMZ712 BLOCK =====")
               pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
-              m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+              m = re.search(pattern, text, re.DOTALL)
               if not m:
                   print("ZONE NOT FOUND")
-                  return None
-              block = m.group(1)
-              print(block)
-              print("===== END ZONE BLOCK =====\n")
-              return block
-
-          def extract_daytime_periods(block):
-              print("===== SPLITTING INTO DAYTIME PERIODS =====")
-              day_labels = ["TODAY", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
-
-              periods = []
-              lines = block.splitlines()
-
-              current_label = None
-              current_text = []
-
-              for line in lines:
-                  line = line.strip()
-
-                  if any(line.startswith(lbl) for lbl in day_labels):
-                      if current_label and current_text:
-                          periods.append((current_label, " ".join(current_text)))
-                      current_label = line.split()[0]
-                      current_text = []
-                  else:
-                      if current_label:
-                          current_text.append(line)
-
-              if current_label and current_text:
-                  periods.append((current_label, " ".join(current_text)))
-
-              print("Extracted periods:")
-              for p in periods:
-                  print(p[0], "=>", p[1])
-              print("===== END PERIOD SPLIT =====\n")
-
-              return periods[:6]
-
-          def extract_wave_info(text):
-              print("Parsing wave info from:", text)
-
-              t = text.lower()
-
-              # 1. Range: "4 to 6 ft"
-              m_range = re.search(r"seas? (\d+)\s*(?:to|-)\s*(\d+)\s*ft", t)
-              if m_range:
-                  low, high = m_range.group(1), m_range.group(2)
-                  height = f"{low}–{high} ft"
+                  block = None
               else:
-                  # 2. Single: "5 ft" or "around 5 ft"
-                  m_single = re.search(r"seas? (?:around )?(\d+)\s*ft", t)
-                  if m_single:
-                      val = int(m_single.group(1))
-                      height = f"{val-1}–{val+1} ft"
-                  else:
-                      print("NO WAVE HEIGHT FOUND\n")
-                      return None
+                  block = m.group(1)
+                  print(block)
+              print("===== END BLOCK =====\n")
 
-              # 3. Period
-              m_period = re.search(r"(\d+)\s*(?:sec|seconds)", t)
-              seconds = m_period.group(1) if m_period else ""
-
-              # 4. Direction
-              m_dir = re.search(
-                  r"\b(n|ne|ene|nne|e|ese|se|sse|s|ssw|sw|wsw|w|wnw|nw|nnw)\b",
-                  t
-              )
-              direction = m_dir.group(1).upper() if m_dir else ""
-
-              result = f"{height} @ {seconds}s {direction}".strip()
-              print("Parsed:", result, "\n")
-              return result
-
-          def build_forecast():
-              raw = fetch_ndbc()
-              if not raw:
-                  return FALLBACK
-
-              block = extract_zone_block(raw)
               if not block:
-                  return FALLBACK
+                  forecast_text = FALLBACK
+              else:
+                  # Normalize
+                  block = block.replace("feet", "ft")
 
-              periods = extract_daytime_periods(block)
-              if not periods:
-                  return FALLBACK
+                  # Extract periods using fcst-day labels
+                  print("===== EXTRACTING PERIODS =====")
+                  lines = block.splitlines()
+                  periods = []
+                  current_label = None
+                  current_text = []
 
-              print("===== BUILDING ULTRA-COMPACT FORECAST =====")
-              lines = []
-              for label, text in periods:
-                  wave = extract_wave_info(text)
-                  if wave:
-                      lines.append(f"{label}: {wave}")
+                  for line in lines:
+                      line = line.strip()
+                      # Detect day labels
+                      if re.match(r"^(REST OF TONIGHT|TODAY|MON|TUE|WED|THU|FRI|SAT|SUN)", line):
+                          if current_label and current_text:
+                              periods.append((current_label, " ".join(current_text)))
+                          current_label = line
+                          current_text = []
+                      else:
+                          if current_label:
+                              current_text.append(line)
 
-              if not lines:
-                  print("NO WAVE DATA FOUND — USING FALLBACK\n")
-                  return FALLBACK
+                  if current_label and current_text:
+                      periods.append((current_label, " ".join(current_text)))
 
-              final = "\n".join(lines)
-              print("FINAL FORECAST:\n", final)
-              print("===== END FORECAST BUILD =====\n")
-              return final
+                  for p in periods:
+                      print(p[0], "=>", p[1])
+                  print("===== END PERIODS =====\n")
 
-          forecast_text = build_forecast()
+                  # Convert REST OF TONIGHT → TODAY
+                  cleaned = []
+                  for label, txt in periods:
+                      if label == "REST OF TONIGHT":
+                          label = "TODAY"
+                      cleaned.append((label, txt))
+
+                  # Keep first 6 daytime-style periods
+                  cleaned = cleaned[:6]
+
+                  # Parse Wave Detail only
+                  print("===== PARSING WAVE DETAIL =====")
+                  final_lines = []
+                  for label, txt in cleaned:
+                      print("Parsing:", label, txt)
+
+                      # Extract first Wave Detail component
+                      m = re.search(r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?", txt, re.I)
+                      if not m:
+                          print("NO WAVE DETAIL FOUND\n")
+                          continue
+
+                      direction = m.group(1).upper()
+                      height = int(m.group(2))
+                      period = m.group(3)
+
+                      # Convert single height → ±1 ft
+                      low = height - 1
+                      high = height + 1
+                      height_str = f"{low}–{high} ft"
+
+                      line = f"{label}: {height_str} @ {period}s {direction}"
+                      print("Parsed:", line, "\n")
+                      final_lines.append(line)
+
+                  if not final_lines:
+                      forecast_text = FALLBACK
+                  else:
+                      forecast_text = "\n".join(final_lines)
+
+          print("===== FINAL FORECAST =====")
+          print(forecast_text)
+          print("===== END FORECAST =====\n")
 
           # ---------------------------------------------------------
           # BACKGROUND IMAGE
