@@ -24,58 +24,43 @@ jobs:
         run: |
           pip install pillow requests beautifulsoup4
 
-      - name: Generate Wave Forecast Card (HTML-aware)
+      - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
           import requests, re
           from bs4 import BeautifulSoup
-          from PIL import Image, ImageDraw, ImageFont
-          import io, traceback
+          from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+          import io
 
           URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
           ZONE = "AMZ712"
           FALLBACK = "Wave forecast temporarily unavailable."
 
-          print("\n===== FETCHING NDBC =====")
+          # ---------------------------------------------------------
+          # FETCH + PARSE HTML
+          # ---------------------------------------------------------
           try:
               r = requests.get(URL, timeout=20)
               r.raise_for_status()
               html = r.text
-              print("Fetch OK\n")
-          except Exception as e:
-              print("Fetch error:", e)
+          except:
               html = None
 
           if not html:
               forecast_text = FALLBACK
           else:
-              print("===== PARSING HTML =====")
               soup = BeautifulSoup(html, "html.parser")
-
-              # Extract all text
               text = soup.get_text("\n")
-              print("HTML stripped\n")
 
               # Extract AMZ712 block
-              print("===== EXTRACTING AMZ712 BLOCK =====")
               pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
               m = re.search(pattern, text, re.DOTALL)
               if not m:
-                  print("ZONE NOT FOUND")
-                  block = None
-              else:
-                  block = m.group(1)
-                  print(block)
-              print("===== END BLOCK =====\n")
-
-              if not block:
                   forecast_text = FALLBACK
               else:
-                  # Normalize
-                  block = block.replace("feet", "ft")
+                  block = m.group(1).replace("feet", "ft")
 
-                  # Extract periods using fcst-day labels
-                  print("===== EXTRACTING PERIODS =====")
+                  # Extract periods
                   lines = block.splitlines()
                   periods = []
                   current_label = None
@@ -83,7 +68,6 @@ jobs:
 
                   for line in lines:
                       line = line.strip()
-                      # Detect day labels
                       if re.match(r"^(REST OF TONIGHT|TODAY|MON|TUE|WED|THU|FRI|SAT|SUN)", line):
                           if current_label and current_text:
                               periods.append((current_label, " ".join(current_text)))
@@ -96,30 +80,24 @@ jobs:
                   if current_label and current_text:
                       periods.append((current_label, " ".join(current_text)))
 
-                  for p in periods:
-                      print(p[0], "=>", p[1])
-                  print("===== END PERIODS =====\n")
-
-                  # Convert REST OF TONIGHT → TODAY
+                  # REST OF TONIGHT → TODAY
                   cleaned = []
                   for label, txt in periods:
                       if label == "REST OF TONIGHT":
                           label = "TODAY"
                       cleaned.append((label, txt))
 
-                  # Keep first 6 daytime-style periods
                   cleaned = cleaned[:6]
 
                   # Parse Wave Detail only
-                  print("===== PARSING WAVE DETAIL =====")
                   final_lines = []
                   for label, txt in cleaned:
-                      print("Parsing:", label, txt)
-
-                      # Extract first Wave Detail component
-                      m = re.search(r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?", txt, re.I)
+                      m = re.search(
+                          r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
+                          txt,
+                          re.I
+                      )
                       if not m:
-                          print("NO WAVE DETAIL FOUND\n")
                           continue
 
                       direction = m.group(1).upper()
@@ -131,21 +109,12 @@ jobs:
                       high = height + 1
                       height_str = f"{low}–{high} ft"
 
-                      line = f"{label}: {height_str} @ {period}s {direction}"
-                      print("Parsed:", line, "\n")
-                      final_lines.append(line)
+                      final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
 
-                  if not final_lines:
-                      forecast_text = FALLBACK
-                  else:
-                      forecast_text = "\n".join(final_lines)
-
-          print("===== FINAL FORECAST =====")
-          print(forecast_text)
-          print("===== END FORECAST =====\n")
+                  forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
           # ---------------------------------------------------------
-          # BACKGROUND IMAGE
+          # BACKGROUND (BRIGHTER)
           # ---------------------------------------------------------
           try:
               bg_data = requests.get(
@@ -157,6 +126,16 @@ jobs:
               bg = Image.new("RGB", (800, 800), "#004488")
 
           bg = bg.resize((800, 800))
+
+          # Brighten background
+          enhancer = ImageEnhance.Brightness(bg)
+          bg = enhancer.enhance(1.35)
+
+          # Soft white overlay
+          overlay = Image.new("RGBA", bg.size, (255, 255, 255, 80))
+          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
+
+          draw = ImageDraw.Draw(card)
 
           # ---------------------------------------------------------
           # LOGO
@@ -173,12 +152,8 @@ jobs:
           logo = logo.resize((120, 120))
 
           # ---------------------------------------------------------
-          # DRAW CARD
+          # FONTS
           # ---------------------------------------------------------
-          overlay = Image.new("RGBA", bg.size, (0, 0, 0, 120))
-          card = Image.alpha_composite(bg.convert("RGBA"), overlay)
-          draw = ImageDraw.Draw(card)
-
           try:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
@@ -187,6 +162,9 @@ jobs:
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
+          # ---------------------------------------------------------
+          # DRAW CARD
+          # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
@@ -203,14 +181,13 @@ jobs:
 
           draw.text(
               (400, 760),
-              "NDBC Marine Forecast | RabirubiaWeather.com",
-              fill="#a0e4ff",
+              "NDBC Marine Forecast | RabirubiaWeather",
+              fill="#003f5c",
               font=font_footer,
               anchor="mm"
           )
 
           card.convert("RGB").save("wave_card.png", optimize=True)
-          print("Saved wave_card.png")
           EOF
 
       - name: Commit and push updated image
