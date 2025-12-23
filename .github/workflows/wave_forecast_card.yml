@@ -130,8 +130,8 @@ jobs:
 
               block = extract_zone_block(raw)
               print("----- AMZ712 BLOCK START -----")
-print(block)
-print("----- AMZ712 BLOCK END -----")
+              print(block)
+              print("----- AMZ712 BLOCK END -----")
 
 if not block:
                   return FALLBACK
