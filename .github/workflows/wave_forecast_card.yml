@@ -53,7 +53,6 @@ jobs:
               soup = BeautifulSoup(html, "html.parser")
               text = soup.get_text("\n")
 
-              # Extract AMZ712 block
               pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
               m = re.search(pattern, text, re.DOTALL)
               if not m:
@@ -61,7 +60,6 @@ jobs:
               else:
                   block = m.group(1).replace("feet", "ft")
 
-                  # Extract periods
                   lines = block.splitlines()
                   periods = []
                   current_label = None
@@ -81,7 +79,6 @@ jobs:
                   if current_label and current_text:
                       periods.append((current_label, " ".join(current_text)))
 
-                  # REST OF TONIGHT → TODAY
                   cleaned = []
                   for label, txt in periods:
                       if label == "REST OF TONIGHT":
@@ -90,7 +87,6 @@ jobs:
 
                   cleaned = cleaned[:6]
 
-                  # Parse Wave Detail only
                   final_lines = []
                   for label, txt in cleaned:
                       m = re.search(
@@ -105,7 +101,6 @@ jobs:
                       height = int(m.group(2))
                       period = m.group(3)
 
-                      # Convert single height → ±1 ft
                       low = height - 1
                       high = height + 1
                       height_str = f"{low}–{high} ft"
@@ -115,7 +110,7 @@ jobs:
                   forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
           # ---------------------------------------------------------
-          # BACKGROUND (BALANCED)
+          # BACKGROUND
           # ---------------------------------------------------------
           try:
               bg_data = requests.get(
@@ -128,11 +123,9 @@ jobs:
 
           bg = bg.resize((800, 800))
 
-          # Slight brightness boost
           enhancer = ImageEnhance.Brightness(bg)
           bg = enhancer.enhance(1.12)
 
-          # Soft white overlay
           overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
           card = Image.alpha_composite(bg.convert("RGBA"), overlay)
 
@@ -156,7 +149,7 @@ jobs:
           # FONTS
           # ---------------------------------------------------------
           try:
-              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
+              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
               font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
               font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
@@ -175,9 +168,11 @@ jobs:
           # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
 
-          draw.text((170, 60), "RabirubiaWeather.com", fill=TEXT, font=font_title)
+          # SMALL DATE IN HEADER
+          draw.text((200, 80), today_str, fill=TEXT, font=font_title)
+
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
-          draw.text((400, 240), f"North Puerto Rico (AMZ712) — {today_str}", fill=TEXT, font=font_sub, anchor="mm")
+          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill=TEXT, font=font_sub, anchor="mm")
 
           draw.multiline_text(
               (80, 300),
@@ -190,7 +185,7 @@ jobs:
 
           # FOOTER LEFT
           draw.text(
-              (80, 760),
+              (80, 730),
               "NDBC Marine Forecast | RabirubiaWeather.com",
               fill=TEXT,
               font=font_footer
@@ -198,7 +193,7 @@ jobs:
 
           # FOOTER RIGHT
           draw.text(
-              (720, 760),
+              (720, 730),
               "Updated every 6 hours",
               fill=TEXT,
               font=font_footer,
