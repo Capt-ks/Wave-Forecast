@@ -2,7 +2,7 @@ name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Every 6 hours
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, re
+          import requests, textwrap, re, json
           from PIL import Image, ImageDraw, ImageFont
           import io, os, traceback
 
@@ -36,50 +36,60 @@ jobs:
               "Accept": "application/geo+json, application/json"
           }
 
-          # ---------------------------------------------------------
-          # FETCH & CLEAN NOAA MARINE FORECAST (MIM PRODUCT)
-          # ---------------------------------------------------------
-          def get_forecast_text():
-              fallback = "Marine forecast temporarily unavailable. Please refer directly to NWS Marine Weather."
+          FALLBACK = (
+              "Marine forecast temporarily unavailable.\n"
+              "Please refer directly to NWS Marine Weather."
+          )
 
+          def safe_json(response):
+              """Return JSON if valid, otherwise None."""
               try:
-                  # 1) Get latest MIM product for SJU
+                  return response.json()
+              except:
+                  return None
+
+          def get_forecast_text():
+              try:
+                  # 1) Get product list
                   r_list = requests.get(
                       "https://api.weather.gov/products/types/MIM/locations/SJU",
                       headers=HEADERS,
                       timeout=20
                   )
-                  r_list.raise_for_status()
-                  plist = r_list.json()
+
+                  plist = safe_json(r_list)
+                  if not plist or "products" not in plist:
+                      return FALLBACK
 
                   products = plist.get("products") or []
                   if not products:
-                      return fallback
+                      return FALLBACK
 
                   pid = products[0].get("id")
                   if not pid:
-                      return fallback
+                      return FALLBACK
 
-                  # 2) Fetch the product text
+                  # 2) Get product text
                   r_prod = requests.get(
                       f"https://api.weather.gov/products/{pid}",
                       headers=HEADERS,
                       timeout=20
                   )
-                  r_prod.raise_for_status()
-                  prod = r_prod.json()
+
+                  prod = safe_json(r_prod)
+                  if not prod or "productText" not in prod:
+                      return FALLBACK
 
                   raw = prod.get("productText", "")
-                  if not raw:
-                      return fallback
+                  if not raw or not isinstance(raw, str):
+                      return FALLBACK
 
-                  # 3) Sanitize text
+                  # 3) Sanitize
                   text = raw.replace("\r", "")
                   text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
                   text = re.sub(r"\s+", " ", text).strip()
 
-                  # 4) Remove NOAA header block
-                  # Look for first marine zone header like "AMZ7xx"
+                  # 4) Remove header block
                   m = re.search(r"(AMZ\d{3}.*?)$", text)
                   if m:
                       text = m.group(1)
@@ -87,19 +97,19 @@ jobs:
                   # 5) Limit length
                   text = text[:1500]
 
-                  # 6) Wrap for card
+                  # 6) Wrap
                   wrapped = textwrap.fill(text, width=42)
-                  return wrapped or fallback
+                  return wrapped or FALLBACK
 
               except Exception as e:
                   print("Forecast error:", e)
                   traceback.print_exc()
-                  return fallback
+                  return FALLBACK
 
           forecast_text = get_forecast_text()
 
           # ---------------------------------------------------------
-          # BACKGROUND IMAGE
+          # BACKGROUND
           # ---------------------------------------------------------
           try:
               bg_data = requests.get(
@@ -133,7 +143,6 @@ jobs:
           card = Image.alpha_composite(bg.convert("RGBA"), overlay)
           draw = ImageDraw.Draw(card)
 
-          # Fonts
           try:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
@@ -148,7 +157,7 @@ jobs:
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
 
-          # Forecast text block
+          # Forecast text
           draw.multiline_text(
               (80, 300),
               forecast_text,
@@ -167,9 +176,10 @@ jobs:
               anchor="mm"
           )
 
-          # Save final card
+          # Save PNG
           card.convert("RGB").save("wave_card.png", optimize=True)
           print("Saved wave_card.png")
+
           EOF
 
       - name: Commit and push updated image
