@@ -27,61 +27,122 @@ jobs:
       - name: Generate Wave Forecast Card
         run: |
           python3 << 'EOF'
-          import requests, textwrap, re
+          import requests, re, textwrap
           from bs4 import BeautifulSoup
           from PIL import Image, ImageDraw, ImageFont
-          import io, os, traceback
+          import io, traceback
 
-          NOAA_URL = "https://forecast.weather.gov/product.php?site=NWS&product=CWF&issuedby=SJU"
-
-          FALLBACK = (
-              "Wave forecast temporarily unavailable.\n"
-              "Please refer directly to NWS Marine Weather."
-          )
+          URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
+          ZONE = "AMZ712"
+          FALLBACK = "Wave forecast temporarily unavailable."
 
           # ---------------------------------------------------------
-          # SCRAPE NOAA HTML PAGE (ALWAYS AVAILABLE)
+          # FETCH NDBC TEXT FORECAST
           # ---------------------------------------------------------
-          def get_forecast_text():
+          def fetch_ndbc():
               try:
-                  r = requests.get(NOAA_URL, timeout=20)
+                  r = requests.get(URL, timeout=20)
                   r.raise_for_status()
-
-                  soup = BeautifulSoup(r.text, "html.parser")
-
-                  # NOAA puts the forecast text inside <pre> tags
-                  pre = soup.find("pre")
-                  if not pre:
-                      return FALLBACK
-
-                  raw = pre.get_text("\n")
-
-                  # Clean text
-                  text = raw.replace("\r", "")
-                  text = re.sub(r"[\x00-\x1F\x7F]", " ", text)
-                  text = re.sub(r"\s+", " ", text).strip()
-
-                  # Extract from first marine zone (AMZ7xx)
-                  m = re.search(r"(AMZ\d{3}.*?)$", text)
-                  if m:
-                      text = m.group(1)
-
-                  # Limit length
-                  text = text[:1500]
-
-                  # Wrap
-                  wrapped = textwrap.fill(text, width=42)
-                  return wrapped or FALLBACK
-
+                  return r.text
               except Exception as e:
-                  print("HTML scrape error:", e)
+                  print("NDBC fetch error:", e)
                   traceback.print_exc()
+                  return None
+
+          # ---------------------------------------------------------
+          # EXTRACT AMZ712 BLOCK
+          # ---------------------------------------------------------
+          def extract_zone_block(text):
+              pattern = rf"({ZONE}.*?)(AMZ\d{{3}}|$$)"
+              m = re.search(pattern, text, re.DOTALL)
+              if not m:
+                  return None
+              return m.group(1)
+
+          # ---------------------------------------------------------
+          # SPLIT INTO DAYTIME PERIODS ONLY
+          # ---------------------------------------------------------
+          def extract_daytime_periods(block):
+              # NOAA day labels
+              day_labels = [
+                  "TODAY", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"
+              ]
+
+              periods = []
+              lines = block.splitlines()
+
+              current_label = None
+              current_text = []
+
+              for line in lines:
+                  line = line.strip()
+
+                  # Detect a day label
+                  if any(line.startswith(lbl) for lbl in day_labels):
+                      if current_label and current_text:
+                          periods.append((current_label, " ".join(current_text)))
+                      current_label = line.split()[0]
+                      current_text = []
+                  else:
+                      if current_label:
+                          current_text.append(line)
+
+              if current_label and current_text:
+                  periods.append((current_label, " ".join(current_text)))
+
+              # Keep only first 6 daytime periods
+              return periods[:6]
+
+          # ---------------------------------------------------------
+          # EXTRACT WAVE-ONLY INFO (ultra compact)
+          # ---------------------------------------------------------
+          def extract_wave_info(period_text):
+              # Look for seas, swell, period
+              seas = re.search(r"seas? (\d+)\s?to\s?(\d+)\s?ft", period_text, re.I)
+              swell = re.search(r"(\w+)\s?swell.*?(\d+)\s?ft", period_text, re.I)
+              period = re.search(r"(\d+)\s?seconds?", period_text, re.I)
+
+              if not seas:
+                  return None
+
+              low, high = seas.group(1), seas.group(2)
+              height = f"{low}–{high} ft"  # en dash
+
+              direction = swell.group(1).upper() if swell else ""
+              seconds = period.group(1) if period else ""
+
+              if seconds:
+                  return f"{height} @ {seconds}s {direction}".strip()
+              return height
+
+          # ---------------------------------------------------------
+          # BUILD ULTRA-COMPACT FORECAST
+          # ---------------------------------------------------------
+          def build_forecast():
+              raw = fetch_ndbc()
+              if not raw:
                   return FALLBACK
 
-          forecast_text = get_forecast_text()
+              block = extract_zone_block(raw)
+              if not block:
+                  return FALLBACK
+
+              periods = extract_daytime_periods(block)
+              if not periods:
+                  return FALLBACK
+
+              lines = []
+              for label, text in periods:
+                  wave = extract_wave_info(text)
+                  if wave:
+                      lines.append(f"{label}: {wave}")
+
+              return "\n".join(lines) if lines else FALLBACK
+
+          forecast_text = build_forecast()
 
           # ---------------------------------------------------------
-          # BACKGROUND
+          # BACKGROUND IMAGE
           # ---------------------------------------------------------
           try:
               bg_data = requests.get(
@@ -118,7 +179,7 @@ jobs:
           try:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 48)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
-              font_body = ImageFont.truetype("DejaVuSans.ttf", 26)
+              font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
               font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
@@ -127,7 +188,7 @@ jobs:
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
-          draw.text((400, 240), "Puerto Rico & USVI", fill="white", font=font_sub, anchor="mm")
+          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill="white", font=font_sub, anchor="mm")
 
           # Forecast text
           draw.multiline_text(
@@ -136,13 +197,13 @@ jobs:
               fill="white",
               font=font_body,
               align="left",
-              spacing=8
+              spacing=10
           )
 
           # Footer
           draw.text(
               (400, 760),
-              "NOAA Coastal Waters Forecast | RabirubiaWeather",
+              "NDBC Marine Forecast | RabirubiaWeather",
               fill="#a0e4ff",
               font=font_footer,
               anchor="mm"
