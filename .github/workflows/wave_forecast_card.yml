@@ -31,6 +31,7 @@ jobs:
           from bs4 import BeautifulSoup
           from PIL import Image, ImageDraw, ImageFont, ImageEnhance
           import io
+          from datetime import datetime
 
           URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
           ZONE = "AMZ712"
@@ -127,11 +128,11 @@ jobs:
 
           bg = bg.resize((800, 800))
 
-          # Slight brightness boost (not washed out)
+          # Slight brightness boost
           enhancer = ImageEnhance.Brightness(bg)
           bg = enhancer.enhance(1.12)
 
-          # Very soft white overlay
+          # Soft white overlay
           overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
           card = Image.alpha_composite(bg.convert("RGBA"), overlay)
 
@@ -162,16 +163,21 @@ jobs:
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
-          # Dark marine text color
           TEXT = "#0a1a2f"
+
+          # ---------------------------------------------------------
+          # DATE FOR HEADER
+          # ---------------------------------------------------------
+          today_str = datetime.now().strftime("%b %d, %Y")
 
           # ---------------------------------------------------------
           # DRAW CARD
           # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
-          draw.text((170, 60), "RabirubiaWeather", fill=TEXT, font=font_title)
+
+          draw.text((170, 60), "RabirubiaWeather.com", fill=TEXT, font=font_title)
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
-          draw.text((400, 240), "North Puerto Rico (AMZ712)", fill=TEXT, font=font_sub, anchor="mm")
+          draw.text((400, 240), f"North Puerto Rico (AMZ712) — {today_str}", fill=TEXT, font=font_sub, anchor="mm")
 
           draw.multiline_text(
               (80, 300),
@@ -182,12 +188,21 @@ jobs:
               spacing=10
           )
 
+          # FOOTER LEFT
           draw.text(
-              (400, 760),
-              "NDBC Marine Forecast | RabirubiaWeather",
+              (80, 760),
+              "NDBC Marine Forecast | RabirubiaWeather.com",
+              fill=TEXT,
+              font=font_footer
+          )
+
+          # FOOTER RIGHT
+          draw.text(
+              (720, 760),
+              "Updated every 6 hours",
               fill=TEXT,
               font=font_footer,
-              anchor="mm"
+              anchor="rm"
           )
 
           card.convert("RGB").save("wave_card.png", optimize=True)
