@@ -53,7 +53,7 @@ jobs:
           # EXTRACT AMZ712 BLOCK
           # ---------------------------------------------------------
           def extract_zone_block(text):
-              pattern = rf"({ZONE}.*?)(AMZ\d{{3}}|$$)"
+              pattern = rf"({ZONE}.*?)(AMZ\\d{{3}}|$)"
               m = re.search(pattern, text, re.DOTALL)
               if not m:
                   return None
@@ -63,10 +63,7 @@ jobs:
           # SPLIT INTO DAYTIME PERIODS ONLY
           # ---------------------------------------------------------
           def extract_daytime_periods(block):
-              # NOAA day labels
-              day_labels = [
-                  "TODAY", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"
-              ]
+              day_labels = ["TODAY", "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
               periods = []
               lines = block.splitlines()
@@ -77,7 +74,6 @@ jobs:
               for line in lines:
                   line = line.strip()
 
-                  # Detect a day label
                   if any(line.startswith(lbl) for lbl in day_labels):
                       if current_label and current_text:
                           periods.append((current_label, " ".join(current_text)))
@@ -90,26 +86,35 @@ jobs:
               if current_label and current_text:
                   periods.append((current_label, " ".join(current_text)))
 
-              # Keep only first 6 daytime periods
               return periods[:6]
 
           # ---------------------------------------------------------
-          # EXTRACT WAVE-ONLY INFO (ultra compact)
+          # BULLETPROOF WAVE EXTRACTION
           # ---------------------------------------------------------
-          def extract_wave_info(period_text):
-              # Look for seas, swell, period
-              seas = re.search(r"seas? (\d+)\s?to\s?(\d+)\s?ft", period_text, re.I)
-              swell = re.search(r"(\w+)\s?swell.*?(\d+)\s?ft", period_text, re.I)
-              period = re.search(r"(\d+)\s?seconds?", period_text, re.I)
+          def extract_wave_info(text):
+              text = text.lower()
 
-              if not seas:
-                  return None
+              # 1. Wave height (range)
+              m_range = re.search(r"seas? (\d+)\s*(?:to|-)\s*(\d+)\s*ft", text)
+              if m_range:
+                  low, high = m_range.group(1), m_range.group(2)
+                  height = f"{low}–{high} ft"
+              else:
+                  # 2. Single height → convert to ±1 ft
+                  m_single = re.search(r"seas? (?:around )?(\d+)\s*ft", text)
+                  if m_single:
+                      val = int(m_single.group(1))
+                      height = f"{val-1}–{val+1} ft"
+                  else:
+                      return None
 
-              low, high = seas.group(1), seas.group(2)
-              height = f"{low}–{high} ft"  # en dash
+              # 3. Period
+              m_period = re.search(r"(\d+)\s*(?:sec|seconds)", text)
+              seconds = m_period.group(1) if m_period else ""
 
-              direction = swell.group(1).upper() if swell else ""
-              seconds = period.group(1) if period else ""
+              # 4. Swell direction
+              m_dir = re.search(r"\b(n|ne|ene|nne|e|ese|se|sse|s|ssw|sw|wsw|w|wnw|nw|nnw)\b", text)
+              direction = m_dir.group(1).upper() if m_dir else ""
 
               if seconds:
                   return f"{height} @ {seconds}s {direction}".strip()
@@ -160,7 +165,7 @@ jobs:
           # ---------------------------------------------------------
           try:
               logo_data = requests.get(
-                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png/v1/fill/w_234,h_234,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/RWRoundLogoTransp.png",
+                  "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
                   timeout=20
               ).content
               logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
@@ -184,13 +189,11 @@ jobs:
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
-          # Header
           card.paste(logo, (40, 40), logo)
           draw.text((170, 60), "RabirubiaWeather", fill="white", font=font_title)
           draw.text((400, 180), "Wave Forecast", fill="white", font=font_sub, anchor="mm")
           draw.text((400, 240), "North Puerto Rico (AMZ712)", fill="white", font=font_sub, anchor="mm")
 
-          # Forecast text
           draw.multiline_text(
               (80, 300),
               forecast_text,
@@ -200,7 +203,6 @@ jobs:
               spacing=10
           )
 
-          # Footer
           draw.text(
               (400, 760),
               "NDBC Marine Forecast | RabirubiaWeather",
@@ -209,7 +211,6 @@ jobs:
               anchor="mm"
           )
 
-          # Save PNG
           card.convert("RGB").save("wave_card.png", optimize=True)
           print("Saved wave_card.png")
           EOF
