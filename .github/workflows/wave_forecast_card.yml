@@ -152,7 +152,7 @@ jobs:
               font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
               font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
-              font_footer = ImageFont.truetype("DejaVuSans.ttf", 22)
+              font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)  # smaller footer
           except:
               font_title = font_sub = font_body = font_footer = ImageFont.load_default()
 
@@ -168,7 +168,7 @@ jobs:
           # ---------------------------------------------------------
           card.paste(logo, (40, 40), logo)
 
-          # SMALL DATE IN HEADER
+          # Small date in header
           draw.text((200, 80), today_str, fill=TEXT, font=font_title)
 
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
@@ -183,21 +183,17 @@ jobs:
               spacing=10
           )
 
-          # FOOTER LEFT
-          draw.text(
-              (80, 730),
-              "NDBC Marine Forecast | RabirubiaWeather.com",
-              fill=TEXT,
-              font=font_footer
-          )
+          # ---------------------------------------------------------
+          # SINGLE-LINE FOOTER (CENTERED)
+          # ---------------------------------------------------------
+          footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
 
-          # FOOTER RIGHT
           draw.text(
-              (720, 730),
-              "Updated every 6 hours",
+              (400, 730),          # centered horizontally
+              footer_line,
               fill=TEXT,
               font=font_footer,
-              anchor="rm"
+              anchor="mm"
           )
 
           card.convert("RGB").save("wave_card.png", optimize=True)
