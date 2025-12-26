@@ -157,7 +157,7 @@ jobs:
           # FONTS
           # ---------------------------------------------------------
           try:
-              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 30)
+              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
               font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
               font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
               font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
