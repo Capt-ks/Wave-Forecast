@@ -2,7 +2,7 @@ name: Update Wave Forecast Card Image
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */6 * * *'   # Every 6 hours UTC
   workflow_dispatch:
 
 jobs:
@@ -33,9 +33,9 @@ jobs:
           import io
           from datetime import datetime
 
-          # ──────────────────────────────
-          # ORIGINAL FORECAST FETCH & PARSE (unchanged)
-          # ──────────────────────────────
+          # ───────────────────────────────────────────────────────
+          # ORIGINAL: Fetch & Parse AMZ726 Forecast (unchanged)
+          # ───────────────────────────────────────────────────────
           URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
           ZONE = "726"
           FALLBACK = "Wave forecast temporarily unavailable."
@@ -115,43 +115,42 @@ jobs:
 
                   forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
-          # ──────────────────────────────
-          # NEW: Fetch CURRENT conditions from Buoy 41043 (updated column indices for 2025 structure)
-          # ──────────────────────────────
-          
+          # ───────────────────────────────────────────────────────
+          # FIXED: Current conditions from Buoy 41043 (updated for current table)
+          # Only WVHT (Significant Wave Height) is reliably available now
+          # ───────────────────────────────────────────────────────
           BUOY_URL = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-          buoy_sig = buoy_swell_h = buoy_period = buoy_dir = "N/A"
-          
+          buoy_sig = "N/A"
+          buoy_dir = "N/A"   # Not available in main table anymore
+
           try:
               buoy_r = requests.get(BUOY_URL, timeout=15)
-              buoy_r.raise_for_status()  # Raise error on bad status
+              buoy_r.raise_for_status()
               buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
-              
-              # Find the main observations table (no cellpadding anymore)
-              table = buoy_soup.find("table")  # First/main table should be it
+
+              # Find the main observations table (usually the first or second table)
+              tables = buoy_soup.find_all("table")
+              table = None
+              for t in tables:
+                  if "TIME" in t.get_text():  # Look for header with TIME
+                      table = t
+                      break
+
               if table:
                   rows = table.find_all("tr")
-                  if len(rows) > 1:  # Skip header, take first data row
-                      row = rows[1]
+                  if len(rows) > 1:
+                      row = rows[1]  # First data row
                       cols = row.find_all("td")
-                      if len(cols) >= 5:  # We need at least up to SwD
-                          wvht = cols[1].get_text(strip=True)   # WVHT ft
-                          swh  = cols[2].get_text(strip=True)   # SwH ft
-                          swp  = cols[3].get_text(strip=True)   # SwP sec
-                          swd  = cols[4].get_text(strip=True)   # SwD
-          
-                          if wvht and wvht != "MM": buoy_sig     = wvht + " ft"
-                          if swh  and swh  != "MM": buoy_swell_h = swh  + " ft"
-                          if swp  and swp  != "MM": buoy_period  = swp  + " sec"
-                          if swd  and swd  != "MM": buoy_dir     = swd
-          except Exception as e:
-              pass  # Fallback to N/A on any error
-          
-          # (rest of your script remains the same – draw the text with these variables)
+                      if len(cols) >= 5:
+                          wvht = cols[4].get_text(strip=True)  # WVHT ft (column index 4, 0-based)
+                          if wvht and wvht != "-" and wvht != "MM":
+                              buoy_sig = wvht + " ft"
+          except:
+              buoy_sig = "N/A"
 
-          # ──────────────────────────────
-          # IMAGE GENERATION (original + new bottom section)
-          # ──────────────────────────────
+          # ───────────────────────────────────────────────────────
+          # IMAGE GENERATION
+          # ───────────────────────────────────────────────────────
           try:
               bg_data = requests.get(
                   "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
@@ -161,7 +160,7 @@ jobs:
           except:
               bg = Image.new("RGB", (800, 800), "#004488")
 
-          bg = bg.resize((800, 900))  # Increased height to fit extra bottom section
+          bg = bg.resize((800, 950))  # Increased height for extra section
           enhancer = ImageEnhance.Brightness(bg)
           bg = enhancer.enhance(1.12)
 
@@ -176,30 +175,28 @@ jobs:
                   timeout=20
               ).content
               logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
+              logo = logo.resize((120, 120))
+              card.paste(logo, (40, 40), logo)
           except:
-              logo = Image.new("RGBA", (120, 120), "white")
+              pass
 
-          logo = logo.resize((120, 120))
-          card.paste(logo, (40, 40), logo)
-
-          # Fonts
+          # Fonts (with proper fallback)
           try:
-              font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
-              font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
-              font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-              font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
-              font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
-              font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)   # slightly smaller for buoy line
+              font_title   = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+              font_sub     = ImageFont.truetype("DejaVuSans.ttf", 40)
+              font_location= ImageFont.truetype("DejaVuSans.ttf", 26)
+              font_body    = ImageFont.truetype("DejaVuSans.ttf", 28)
+              font_footer  = ImageFont.truetype("DejaVuSans.ttf", 18)
+              font_buoy    = ImageFont.truetype("DejaVuSans.ttf", 22)
           except:
               font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
           TEXT = "#0a1a2f"
 
-          # Date header
+          # Header
           today_str = datetime.now().strftime("%b %d, %Y")
           draw.text((200, 80), today_str, fill=TEXT, font=font_title)
 
-          # Title & location
           draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
           draw.text(
               (400, 240),
@@ -209,7 +206,7 @@ jobs:
               anchor="mm"
           )
 
-          # Forecast text (original)
+          # Forecast
           draw.multiline_text(
               (80, 300),
               forecast_text,
@@ -219,37 +216,36 @@ jobs:
               spacing=10
           )
 
-          # ──────────────────────────────
-          # NEW BOTTOM SECTION: Current Buoy 41043
-          # ──────────────────────────────
-          buoy_y_title = 680   # Adjust this value if needed after testing (below forecast)
-          buoy_y_values = buoy_y_title + 35
+          # ───────────────────────────────────────────────────────
+          # NEW BOTTOM SECTION: Current from Buoy 41043
+          # ───────────────────────────────────────────────────────
+          buoy_y_title = 700   # Adjust this if text overlaps (test locally)
+          buoy_y_value = buoy_y_title + 35
 
-          # Optional subtle background bar
           draw.rectangle(
-              [(60, buoy_y_title - 15), (740, buoy_y_values + 35)],
-              fill=(0, 20, 60, 120)  # semi-transparent dark blue
+              [(60, buoy_y_title - 20), (740, buoy_y_value + 40)],
+              fill=(0, 20, 60, 140)
           )
 
           draw.text(
               (80, buoy_y_title),
               "Current (Buoy 41043 – NE Puerto Rico)",
-              fill="#ffffff",
+              fill="white",
               font=font_buoy
           )
 
-          buoy_line = f"Sig: {buoy_sig} | Swell: {buoy_swell_h} | {buoy_period} | {buoy_dir}"
+          buoy_text = f"Significant Wave Height: {buoy_sig}"
           draw.text(
-              (80, buoy_y_values),
-              buoy_line,
-              fill="#a0d0ff",  # light cyan for highlight
+              (80, buoy_y_value),
+              buoy_text,
+              fill="#a0d0ff",
               font=font_buoy
           )
 
-          # Original footer (shifted down a bit)
+          # Footer (shifted down)
           footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
           draw.text(
-              (400, 830),  # shifted down to accommodate new section
+              (400, 880),
               footer_line,
               fill=TEXT,
               font=font_footer,
@@ -262,7 +258,7 @@ jobs:
       - name: Commit and push updated image
         run: |
           if [ ! -f wave_card.png ]; then
-            echo "ERROR: wave_card.png not found — aborting commit"
+            echo "ERROR: wave_card.png not found"
             exit 1
           fi
 
