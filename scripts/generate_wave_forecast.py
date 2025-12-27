@@ -5,9 +5,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
 from datetime import datetime
 
-# ─────────────────────────────────────────────────────────────
-# 1. Fetch & Parse AMZ726 Forecast (your original logic, unchanged)
-# ─────────────────────────────────────────────────────────────
+# 1. Original AMZ726 Forecast parsing (unchanged)
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
 FALLBACK = "Wave forecast temporarily unavailable."
@@ -16,7 +14,7 @@ try:
     r = requests.get(URL, timeout=20)
     r.raise_for_status()
     html = r.text
-except:
+except Exception:
     html = None
 
 if not html:
@@ -86,9 +84,7 @@ else:
 
         forecast_text = "\n".join(final_lines) if final_lines else FALLBACK
 
-# ─────────────────────────────────────────────────────────────
-# 2. Fetch Current Buoy 41043 Data (FIXED for current table structure)
-# ─────────────────────────────────────────────────────────────
+# 2. FIXED: Current data from Buoy 41043 (correct table & column indices)
 BUOY_URL = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -97,43 +93,41 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Find the wave table (contains 'WVHT' header)
+    # Find the specific wave observations table
     table = None
     for t in buoy_soup.find_all('table'):
-        if 'WVHT' in t.get_text() or 'Significant Wave Height' in t.get_text():
+        if 'WVHT' in t.get_text():
             table = t
             break
 
     if table:
         rows = table.find_all('tr')
         if len(rows) > 1:
-            cols = rows[1].find_all('td')  # First data row
+            cols = rows[1].find_all('td')  # Latest data row
             if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)   # Significant Wave Height
-                swh  = cols[2].get_text(strip=True)   # Swell Height
-                swp  = cols[3].get_text(strip=True)   # Swell Period
-                swd  = cols[4].get_text(strip=True)   # Swell Direction
+                wvht = cols[1].get_text(strip=True)  # WVHT ft
+                swh  = cols[2].get_text(strip=True)  # SwH ft
+                swp  = cols[3].get_text(strip=True)  # SwP sec
+                swd  = cols[4].get_text(strip=True)  # SwD
 
-                if wvht and wvht not in ['MM', '-']: sig_height = f"{wvht} ft"
-                if swh  and swh  not in ['MM', '-']: swell_height = f"{swh} ft"
-                if swp  and swp  not in ['MM', '-']: swell_period = f"{swp} sec"
-                if swd  and swd  not in ['MM', '-']: buoy_dir = swd
-except:
-    pass  # Keep N/A on failure
+                if wvht and wvht not in ['MM', '-', '']: sig_height = f"{wvht} ft"
+                if swh  and swh  not in ['MM', '-', '']: swell_height = f"{swh} ft"
+                if swp  and swp  not in ['MM', '-', '']: swell_period = f"{swp} sec"
+                if swd  and swd  not in ['MM', '-', '']: buoy_dir = swd
+except Exception:
+    pass  # Stay N/A on failure
 
-# ─────────────────────────────────────────────────────────────
-# 3. Image Generation (your original style + bottom section)
-# ─────────────────────────────────────────────────────────────
+# 3. Image generation (your original style + bottom section)
 try:
     bg_data = requests.get(
         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
         timeout=20
     ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
-except:
+except Exception:
     bg = Image.new("RGB", (800, 800), "#004488")
 
-bg = bg.resize((800, 950))  # Extra height for current data
+bg = bg.resize((800, 950))  # Extra height for buoy section
 enhancer = ImageEnhance.Brightness(bg)
 bg = enhancer.enhance(1.12)
 
@@ -150,7 +144,7 @@ try:
     logo = Image.open(io.BytesIO(logo_data)).convert("RGBA")
     logo = logo.resize((120, 120))
     card.paste(logo, (40, 40), logo)
-except:
+except Exception:
     pass
 
 # Fonts
@@ -161,7 +155,7 @@ try:
     font_body     = ImageFont.truetype("DejaVuSans.ttf", 28)
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 22)
-except:
+except Exception:
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
 TEXT = "#0a1a2f"
@@ -187,10 +181,8 @@ draw.multiline_text(
     spacing=10
 )
 
-# ──────────────────────────────
-# Bottom: Current Buoy 41043
-# ──────────────────────────────
-buoy_y_title = 700   # Tune this if overlap (increase to 720-750)
+# Bottom section: Current Buoy 41043
+buoy_y_title = 700  # Adjust this value (e.g. 720-750) if text overlaps with forecast
 buoy_y_value = buoy_y_title + 35
 
 draw.rectangle(
@@ -209,7 +201,7 @@ buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy
 draw.text(
     (80, buoy_y_value),
     buoy_text,
-    fill="#a0d0ff",  # light cyan
+    fill="#a0d0ff",
     font=font_buoy
 )
 
