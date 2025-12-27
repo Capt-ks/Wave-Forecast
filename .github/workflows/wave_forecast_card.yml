@@ -24,16 +24,15 @@ jobs:
         run: |
           pip install pillow requests beautifulsoup4
 
-      - name: Generate Wave Forecast Card + Current Buoy 41043
+      - name: Generate Wave Forecast Card
         run: python3 generate_wave_card.py
 
       - name: Commit and push updated image
         run: |
           if [ ! -f wave_card.png ]; then
-            echo "ERROR: wave_card.png not found — aborting"
+            echo "ERROR: wave_card.png not found"
             exit 1
           fi
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add wave_card.png
