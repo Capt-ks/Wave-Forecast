@@ -2,8 +2,8 @@ name: Update 7-Day Wave Forecast Graphicast
 
 on:
   schedule:
-    - cron: '0 */6 * * *'    # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
-  workflow_dispatch:         # Manual trigger available
+    - cron: '0 */6 * * *'    # Every 6 hours UTC
+  workflow_dispatch:
 
 jobs:
   build-and-update-image:
@@ -26,22 +26,12 @@ jobs:
       - name: Generate and update wave forecast image
         run: python scripts/generate_wave_forecast.py
         env:
-          TZ: 'America/Puerto_Rico'   # Ensures correct AST timestamps
+          TZ: 'America/Puerto_Rico'
 
-      - name: Commit and push the updated image
+      - name: Commit and push updated image
         uses: EndBug/add-and-commit@v9
         with:
           add: 'images/wave_forecast.png'
           message: 'chore: update 7-day wave forecast + current buoy 41043 data [auto]'
           default_author: github_actions
-          new_branch: false
-          push: --force   # Ensures latest version is always pushed (safe for single file)
-
-      - name: Fallback commit if no changes detected
-        if: failure()
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add images/wave_forecast.png || true
-          git commit --allow-empty -m "chore: force refresh wave forecast image [auto]" || true
-          git push --force-with-lease || true
+          # No need for new_branch or push – action handles it automatically
