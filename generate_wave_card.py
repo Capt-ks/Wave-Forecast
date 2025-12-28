@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast – improved Wave Detail capture
+# PART 1: Fetch & Parse AMZ726 Forecast (improved Wave Detail extraction)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -54,13 +54,13 @@ try:
 
         final_lines = []
         for label, txt in cleaned:
-            # Capture everything after "Wave Detail:" (more flexible)
-            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated)", txt, re.I | re.DOTALL)
+            # More robust: capture full Wave Detail content after the keyword
+            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated|through)", txt, re.I | re.DOTALL)
             if wave_match:
                 detail = wave_match.group(1).strip()
                 final_lines.append(f"{label}: {detail}")
             else:
-                # Fallback to seas if present
+                # Fallback to seas description if no Wave Detail
                 seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
                 if seas_match:
                     final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
@@ -73,8 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Reverted to last good working 41043 parsing + current fallback
-# (this combo worked when values were real; now hardened)
+# PART 2: Buoy 41043 – current correct parsing (validated structure)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -85,61 +84,35 @@ try:
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
     table = None
-
-    # Priority: Old successful way (high columns when it worked)
-    table = buoy_soup.find('table', {'cellpadding': '5'})
-
-    # Fallback 1: Table with WVHT or "Significant Wave Height"
-    if not table:
-        for tbl in buoy_soup.find_all("table"):
-            tbl_text = tbl.get_text()
-            if "WVHT" in tbl_text or "Significant Wave Height" in tbl_text:
-                table = tbl
-                break
-
-    # Fallback 2: Largest table with enough rows (safety net)
-    if not table:
-        tables = buoy_soup.find_all("table")
-        if tables:
-            table = max(tables, key=lambda t: len(t.find_all("tr")))
+    for tbl in buoy_soup.find_all("table"):
+        if "WVHT" in tbl.get_text():
+            table = tbl
+            break
 
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # latest row
-            if len(cols) > 11:
-                # Old successful indices (when it pulled correct data)
-                wvht = cols[8].get_text(strip=True)
-                swh  = cols[10].get_text(strip=True)
-                swp  = cols[11].get_text(strip=True)
-                swd  = cols[12].get_text(strip=True) if len(cols) > 12 else "N/A"
-            elif len(cols) >= 5:
-                # Current structure fallback (validated today)
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
-            else:
-                wvht = swh = swp = swd = ""
+            cols = rows[1].find_all("td")  # most recent observation
+            if len(cols) >= 5:
+                # Correct current indices (0-based)
+                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
+                swh  = cols[2].get_text(strip=True)  # Swell Height
+                swp  = cols[3].get_text(strip=True)  # Swell Period
+                swd  = cols[4].get_text(strip=True)  # Swell Direction
 
-            # Only set if valid (prevents crazy numbers like 79 ft)
-            if wvht and wvht not in ["MM", "-", ""] and float(wvht) < 30:  # safety cap
-                sig_height = f"{wvht} ft"
-            if swh and swh not in ["MM", "-", ""] and float(swh) < 30:
-                swell_height = f"{swh} ft"
-            if swp and swp not in ["MM", "-", ""]:
-                swell_period = f"{swp} sec"
-            if swd and swd not in ["MM", "-", ""]:
-                buoy_dir = swd
+                if wvht and wvht not in ["MM", "-"]:
+                    sig_height = f"{wvht} ft"
+                if swh and swh not in ["MM", "-"]:
+                    swell_height = f"{swh} ft"
+                if swp and swp not in ["MM", "-"]:
+                    swell_period = f"{swp} sec"
+                if swd and swd not in ["MM", "-"]:
+                    buoy_dir = swd
 except Exception:
     pass
 
-print("Table found with WVHT:", bool(table))
-if table and len(rows) >= 2:
-    print("Latest row columns:", [c.get_text(strip=True) for c in rows[1].find_all("td")])
-
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation
+# PART 3: Image Generation – adjusted for fit (smaller font, better margins)
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(
@@ -148,9 +121,9 @@ try:
     ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
 except Exception:
-    bg = Image.new("RGB", (800, 950), "#004488")
+    bg = Image.new("RGB", (800, 1000), "#004488")
 
-bg = bg.resize((800, 950))
+bg = bg.resize((800, 1000))
 enhancer = ImageEnhance.Brightness(bg)
 bg = enhancer.enhance(1.12)
 
@@ -169,31 +142,38 @@ try:
 except Exception:
     pass
 
-# Fonts
+# Fonts – smaller for forecast text to fit nicely
 try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body     = ImageFont.truetype("DejaVuSans.ttf", 28)
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)   # reduced for fit
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
-    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 22)
+    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 18)
 except Exception:
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
 TEXT = "#0a1a2f"
 GRAY = "#aaaaaa"
 
-# Header with clarification
+# Header
 draw.text((400, 180), "7-Day Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
 draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)", fill=GRAY, font=font_footer, anchor="mm")
 
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
-# Forecast text
-draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=12)
+# Forecast text – better margins & spacing
+draw.multiline_text(
+    (100, 300),  # left margin 100 → more space
+    forecast_text,
+    fill=TEXT,
+    font=font_body,
+    align="left",
+    spacing=28   # increased line spacing
+)
 
 # Bottom section: Current Buoy 41043
-buoy_y_title = 700  # Increase to 740–780 if overlap occurs
+buoy_y_title = 700
 buoy_y_value = buoy_y_title + 35
 
 draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
@@ -204,6 +184,6 @@ draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
 
 # Footer
 footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
-draw.text((400, 880), footer_line, fill=TEXT, font=font_footer, anchor="mm")
+draw.text((400, 930), footer_line, fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)
