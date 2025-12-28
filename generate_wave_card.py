@@ -202,9 +202,13 @@ except Exception as e:
         for ln in lines_rt:
             if ln.startswith("#YY"):
                 header_tokens = ln.lstrip("#").split()
+                print("DEBUG: Realtime2 header:", header_tokens)
+
                 continue
             if header_tokens and not ln.startswith("#") and ln.strip():
                 data_line = ln
+                print("DEBUG: Realtime2 first data row:", data_line)
+
                 break
 
         if header_tokens and data_line:
