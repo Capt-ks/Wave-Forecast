@@ -177,4 +177,11 @@ draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
 footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
 draw.text((400, 930), footer_line, fill=TEXT, font=font_footer, anchor="mm")
 
+print("Script reached save step")
+print("Forecast text preview:", forecast_text[:200])
+print("Buoy values:", sig_height, swell_height, swell_period, buoy_dir)
+print("Image size:", card.size)
+card.convert("RGB").save("wave_card.png", optimize=True)
+print("File saved successfully")
+
 card.convert("RGB").save("wave_card.png", optimize=True)
