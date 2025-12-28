@@ -79,12 +79,12 @@ print("DEBUG: Forecast text preview:", forecast_text.splitlines()[0] if forecast
 print("DEBUG: Starting PART 2")
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (crash-proof spectral parser)
+# PART 2: Fetch Current Buoy 41043 Data (WVHT + SwH + SwP + SwD)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    url = "https://www.ndbc.noaa.gov/data/spec/41043.spec"
+    url = "https://www.ndbc.noaa.gov/data/spec/41043.data_spec"
     r = requests.get(url, timeout=15)
     r.raise_for_status()
 
@@ -101,7 +101,7 @@ try:
         if header and ln.strip() and not ln.startswith("#"):
             parts = ln.split()
 
-            # Skip rows shorter than header
+            # Skip malformed rows
             if len(parts) < len(header):
                 continue
 
@@ -115,15 +115,15 @@ try:
 
             # Build timestamp safely
             try:
-                YY = int(row.get("YY", "0"))
-                MM = int(row.get("MM", "0"))
-                DD = int(row.get("DD", "0"))
-                hh = int(row.get("hh", "0"))
-                mm = int(row.get("mm", "0"))
-
-                ts = datetime(YY, MM, DD, hh, mm)
+                ts = datetime(
+                    int(row.get("YY", "0")),
+                    int(row.get("MM", "0")),
+                    int(row.get("DD", "0")),
+                    int(row.get("hh", "0")),
+                    int(row.get("mm", "0"))
+                )
                 parsed.append((ts, row))
-            except Exception:
+            except:
                 continue
 
         # Sort newest first
@@ -135,14 +135,14 @@ try:
             def m_to_ft(m):
                 try:
                     return round(float(m) * 3.28084, 1)
-                except Exception:
+                except:
                     return None
 
-            # Extract dynamically
-            wvht = latest.get("WVHT")
-            swh  = latest.get("SwH")
-            swp  = latest.get("SwP")
-            swd  = latest.get("SwD")
+            # Extract values dynamically
+            wvht = latest.get("WVHT")  # significant wave height (m)
+            swh  = latest.get("SwH")   # swell height (m)
+            swp  = latest.get("SwP")   # swell period (s)
+            swd  = latest.get("SwD")   # swell direction (deg)
 
             # Sig height
             if wvht and wvht not in ["MM", "99.00"]:
@@ -165,11 +165,7 @@ try:
                 buoy_dir = f"{swd}°"
 
 except Exception as e:
-    print("DEBUG: PART 2 error (spec parser):", e)
-
-print("DEBUG: Finished PART 2:", sig_height, swell_height, swell_period, buoy_dir)
-
-print("DEBUG: Starting PART 3")
+    print("DEBUG: PART 2 error:", e)
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation
