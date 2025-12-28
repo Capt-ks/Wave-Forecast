@@ -5,7 +5,6 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
 from datetime import datetime
 
-
 # ─────────────────────────────────────────────────────────────
 # PART 1: Fetch & Parse AMZ726 Forecast – improved Wave Detail capture
 # ─────────────────────────────────────────────────────────────
@@ -74,53 +73,33 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – FIXED table selection for full 10-column table
+# PART 2: Fetch Current Buoy 41043 Data (last good working version)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
-
 try:
-    print("Fetching buoy 41043")
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
-    print("Buoy page fetched")
+    buoy_url = 'https://www.ndbc.noaa.gov/station_page.php?station=41043'
+    response = requests.get(buoy_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        tbl_text = tbl.get_text()
-        # Look for strings unique to the full wave table (avoids small 2-column tables)
-        if "SwH" in tbl_text or "SwP" in tbl_text:
-            table = tbl
-            break
-
+    # Find the latest observations (first data row after headers)
+    table = soup.find('table', {'cellpadding': '5'})
     if table:
-        rows = table.find_all("tr")
-        print("Selected table rows:", len(rows))
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # latest row
-            print("Columns in latest row:", len(cols))
-            if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
-
-                if wvht and wvht not in ["MM", "-"]:
+        rows = table.find_all('tr')
+        for row in rows[1:]: # skip header
+            cols = row.find_all('td')
+            if len(cols) > 10:
+                wvht = cols[8].text.strip() # Significant Wave Height
+                swh = cols[10].text.strip() # Swell Height
+                swp = cols[11].text.strip() # Swell Period
+                if wvht and wvht != 'MM' and swh != 'MM' and swp != 'MM':
                     sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-"]:
                     swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-"]:
                     swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-"]:
-                    buoy_dir = swd
-                print("Buoy data extracted:", sig_height, swell_height, swell_period, buoy_dir)
-            else:
-                print("Too few columns in selected table")
+                    break
     else:
-        print("No matching wave table found")
-except Exception as e:
-    print("Buoy fetch error:", str(e))
+        sig_height = swell_height = swell_period = "N/A"
+except Exception:
+    pass
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation
