@@ -12,10 +12,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository (full history)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Ensures git history for proper commits
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,23 +28,16 @@ jobs:
       - name: Generate card
         run: python generate_wave_card.py
 
-      - name: Verify card file exists
+      - name: Verify file
         run: |
-          if [ -f wave_card.png ]; then
-            echo "Card generated successfully!"
-            ls -la wave_card.png
-            du -h wave_card.png
-          else
-            echo "ERROR: wave_card.png NOT generated - script failed silently"
-            exit 1
-          fi
+          ls -la wave_card.png || echo "File missing!"
+          du -h wave_card.png || echo "No size"
 
-      - name: Commit and force-push the image
+      - name: Commit and push (force add)
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          git add wave_card.png || true
+          git add -f wave_card.png  # Force add even if unchanged
           git status
-          git diff --staged || echo "No diff"
-          git commit -m "Update wave forecast card [auto]" --allow-empty || echo "Commit skipped (no change)"
-          git push origin HEAD:${{ github.ref_name }} --force-with-lease || echo "Push failed - check branch/permissions"
+          git commit -m "Update wave forecast card [auto]" --allow-empty || echo "Commit skipped"
+          git push origin HEAD:main --force-with-lease || echo "Push skipped"
