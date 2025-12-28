@@ -80,44 +80,47 @@ except Exception:
     pass  # keep fallback text
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (updated for current structure)
-# Columns: 0=TIME, 1=WVHT ft, 2=SwH ft, 3=SwP sec, 4=SwD
+# PART 2: Fetch Current Buoy 41043 Data (FIXED – realtime feed)
+# Columns (typical):
+# YY MM DD hh mm WVHT SwH SwP SwD ...
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+    buoy_url = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
+    r = requests.get(buoy_url, timeout=15)
+    r.raise_for_status()
 
-    # Find the wave observations table by looking for WVHT marker
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        if "WVHT" in tbl.get_text():
-            table = tbl
-            break
+    lines = r.text.strip().splitlines()
+    if len(lines) >= 3:
+        header = lines[0].split()
+        data   = lines[2].split()  # most recent observation
 
-    if table:
-        rows = table.find_all("tr")
-        if len(rows) >= 2:  # header + data
-            cols = rows[1].find_all("td")  # most recent observation
-            if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
-                swh  = cols[2].get_text(strip=True)  # Swell Height
-                swp  = cols[3].get_text(strip=True)  # Swell Period
-                swd  = cols[4].get_text(strip=True)  # Swell Direction
+        col = {name: idx for idx, name in enumerate(header)}
 
-                if wvht and wvht not in ["MM", "-", ""]:
-                    sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-", ""]:
-                    swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-", ""]:
-                    swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-", ""]:
-                    buoy_dir = swd
+        def val(name):
+            if name in col:
+                v = data[col[name]]
+                return v if v not in ["MM", "-", ""] else None
+            return None
+
+        wvht = val("WVHT")
+        swh  = val("SwH")
+        swp  = val("SwP")
+        swd  = val("SwD")
+
+        if wvht:
+            sig_height = f"{wvht} ft"
+        if swh:
+            swell_height = f"{swh} ft"
+        if swp:
+            swell_period = f"{swp} sec"
+        if swd:
+            buoy_dir = swd
+
 except Exception:
-    pass  # stay N/A on failure
+    pass  # keep N/A on failure
+
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Generate the card image
