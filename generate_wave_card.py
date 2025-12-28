@@ -7,8 +7,10 @@ from datetime import datetime
 
 print("DEBUG: Starting PART 1")
 
+print("DEBUG: Starting PART 1")
+
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (robust + safe fallback)
+# PART 1: Fetch & Parse AMZ726 Forecast (new NOAA format)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 FALLBACK = "Wave forecast temporarily unavailable."
@@ -20,66 +22,66 @@ try:
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    page_text = soup.get_text("\n")
+    # NOAA now places the forecast inside <pre> blocks
+    pre = soup.find("pre")
+    if pre:
+        raw = pre.get_text("\n")
+        raw = raw.replace("feet", "ft")
 
-    # Block for AMZ726 until next AMZ7xx or end
-    pattern = r"(AMZ726[\s\S]*?)(AMZ7\d{2}\b|$)"
-    m = re.search(pattern, page_text, re.IGNORECASE)
-    if m:
-        block = m.group(1)
-        block = block.replace("feet", "ft")
+        # Extract only AMZ726 section
+        pattern = r"(AMZ726[\s\S]*?)(AMZ7\d{2}|$$)"
+        m = re.search(pattern, raw, re.IGNORECASE)
+        if m:
+            block = m.group(1)
+        else:
+            block = raw  # fallback: use entire <pre>
+
         lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
 
-        if lines and lines[0].upper().startswith("AMZ726"):
-            lines = lines[1:]
+        # Forecast period labels
+        LABELS = [
+            "TODAY", "TONIGHT", "THIS AFTERNOON",
+            "MONDAY", "MONDAY NIGHT",
+            "TUESDAY", "TUESDAY NIGHT",
+            "WEDNESDAY", "WEDNESDAY NIGHT",
+            "THURSDAY", "THURSDAY NIGHT",
+            "FRIDAY", "FRIDAY NIGHT",
+            "SATURDAY", "SATURDAY NIGHT",
+            "SUNDAY", "SUNDAY NIGHT"
+        ]
 
         periods = []
         current_label = None
         current_text = []
 
-        def is_label(line: str) -> bool:
-            return bool(re.match(
-                r"^(REST OF TONIGHT|TONIGHT|TODAY|THIS AFTERNOON|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)",
-                line,
-                re.IGNORECASE,
-            ))
+        def is_label(line):
+            return any(line.upper().startswith(lbl) for lbl in LABELS)
 
         for line in lines:
             if is_label(line):
                 if current_label and current_text:
-                    periods.append((current_label.upper(), " ".join(current_text)))
-                current_label = line.strip()
+                    periods.append((current_label, " ".join(current_text)))
+                current_label = line
                 current_text = []
             else:
                 if current_label:
-                    current_text.append(line.strip())
+                    current_text.append(line)
 
         if current_label and current_text:
-            periods.append((current_label.upper(), " ".join(current_text)))
+            periods.append((current_label, " ".join(current_text)))
 
-        cleaned = []
-        for label, txt in periods:
-            if label == "REST OF TONIGHT":
-                label = "TONIGHT"
-            cleaned.append((label, txt))
-
-        cleaned = cleaned[:7]
-
+        # Build final text
         final_lines = []
-        for label, txt in cleaned:
-            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$)", txt, re.IGNORECASE | re.DOTALL)
-            if wave_match:
-                detail = wave_match.group(1).strip()
-                final_lines.append(f"{label}: {detail}")
+        for label, txt in periods[:7]:
+            # Try to extract seas
+            seas = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*ft", txt, re.IGNORECASE)
+            if seas:
+                final_lines.append(f"{label}: Seas {seas.group(1)}–{seas.group(2)} ft")
             else:
-                seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*ft", txt, re.IGNORECASE)
-                if seas_match:
-                    final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match(2)} ft")
-                else:
-                    short = txt.replace("\n", " ")
-                    if len(short) > 90:
-                        short = short[:90] + "..."
-                    final_lines.append(f"{label}: {short}")
+                short = txt.replace("\n", " ")
+                if len(short) > 90:
+                    short = short[:90] + "..."
+                final_lines.append(f"{label}: {short}")
 
         if final_lines:
             forecast_text = "\n".join(final_lines)
@@ -90,7 +92,6 @@ except Exception as e:
 print("DEBUG: Finished PART 1")
 print("DEBUG: Forecast text preview:", forecast_text.splitlines()[0] if forecast_text else "EMPTY")
 
-print("DEBUG: Starting PART 2")
 
 # ─────────────────────────────────────────────────────────────
 # PART 2: Fetch Current Buoy 41043 Data from realtime2
