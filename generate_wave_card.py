@@ -73,56 +73,49 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (robust version)
+# PART 2: Fetch Current Buoy 41043 Data (realtime2 feed – reliable)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    soup = BeautifulSoup(buoy_r.text, "html.parser")
+    url = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
 
-    # Look for any table containing WVHT, SwH, SwP, SwD
-    target_table = None
-    for tbl in soup.find_all("table"):
-        header = tbl.find("tr")
-        if not header:
-            continue
+    lines = r.text.splitlines()
 
-        header_text = header.get_text().lower()
+    # Skip header lines starting with '#'
+    data_lines = [ln for ln in lines if not ln.startswith("#")]
 
-        if any(key in header_text for key in ["wvht", "swh", "swp", "swd"]):
-            target_table = tbl
-            break
+    if len(data_lines) >= 1:
+        parts = data_lines[0].split()
 
-    if target_table:
-        rows = target_table.find_all("tr")
-        if len(rows) >= 2:
-            headers = [h.get_text(strip=True).lower() for h in rows[0].find_all(["th", "td"])]
-            values = [v.get_text(strip=True) for v in rows[1].find_all("td")]
+        # realtime2 format:
+        # YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP DEWP VIS TIDE
 
-            def get(col):
-                if col in headers:
-                    return values[headers.index(col)]
-                return None
+        if len(parts) >= 12:
+            wvht = parts[7]   # Significant Wave Height (meters)
+            dpd  = parts[8]   # Dominant Wave Period (seconds)
+            mwd  = parts[11]  # Mean Wave Direction (degrees)
 
-            wvht = get("wvht") or get("wvht (ft)") or get("wvht (m)")
-            swh  = get("swh") or get("swh (ft)") or get("swh (m)")
-            swp  = get("swp") or get("swp (s)")
-            swd  = get("swd") or get("swd (deg)")
+            # Convert meters → feet
+            def m_to_ft(m):
+                try:
+                    return round(float(m) * 3.28084, 1)
+                except:
+                    return None
 
-            if wvht and wvht not in ["MM", "-", ""]:
-                sig_height = f"{wvht} ft" if "m" not in wvht else f"{wvht} m"
+            if wvht not in ["MM", "99.00"]:
+                sig_height = f"{m_to_ft(wvht)} ft"
 
-            if swh and swh not in ["MM", "-", ""]:
-                swell_height = f"{swh} ft" if "m" not in swh else f"{swh} m"
+            # Swell height is not directly given; use WVHT as fallback
+            swell_height = sig_height
 
-            if swp and swp not in ["MM", "-", ""]:
-                swell_period = f"{swp} sec"
+            if dpd not in ["MM", "99"]:
+                swell_period = f"{dpd} sec"
 
-            if swd and swd not in ["MM", "-", ""]:
-                buoy_dir = swd
+            if mwd not in ["MM", "999"]:
+                buoy_dir = mwd
 
 except Exception as e:
     print("Buoy parse error:", e)
