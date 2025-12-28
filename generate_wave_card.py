@@ -75,38 +75,44 @@ except Exception:
 # ─────────────────────────────────────────────────────────────
 # PART 2: Fetch Current Buoy 41043 Data (stable)
 # ─────────────────────────────────────────────────────────────
+import requests
+
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
+
 try:
-    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
-    buoy_r = requests.get(buoy_url, timeout=15)
-    buoy_r.raise_for_status()
-    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
+    buoy_url = "https://www.ndbc.noaa.gov/data/realtime2/41043.txt"
+    r = requests.get(buoy_url, timeout=15)
+    r.raise_for_status()
 
-    table = None
-    for tbl in buoy_soup.find_all("table"):
-        if "SwH" in tbl.get_text() or "SwP" in tbl.get_text() or "Significant Wave Height" in tbl.get_text():
-            table = tbl
-            break
+    lines = r.text.strip().splitlines()
 
-    if table:
-        rows = table.find_all("tr")
-        if len(rows) >= 2:
-            cols = rows[1].find_all("td")
-            if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh = cols[2].get_text(strip=True)
-                swp = cols[3].get_text(strip=True)
-                swd = cols[4].get_text(strip=True)
-                if wvht and wvht not in ["MM", "-"]:
-                    sig_height = f"{wvht} ft"
-                if swh and swh not in ["MM", "-"]:
-                    swell_height = f"{swh} ft"
-                if swp and swp not in ["MM", "-"]:
-                    swell_period = f"{swp} sec"
-                if swd and swd not in ["MM", "-"]:
-                    buoy_dir = swd
-except Exception:
-    pass
+    # First non-comment line is header, second is latest observation
+    header = lines[0].split()
+    data = lines[1].split()
+
+    def get(col):
+        return data[header.index(col)] if col in header else None
+
+    wvht = get("WVHT")   # Significant wave height (m)
+    swh  = get("SwH")    # Swell height (m)
+    swp  = get("SwP")    # Swell period (s)
+    swd  = get("SwD")    # Swell direction (deg)
+
+    if wvht and wvht not in ["MM"]:
+        sig_height = f"{round(float(wvht) * 3.28084, 1)} ft"
+
+    if swh and swh not in ["MM"]:
+        swell_height = f"{round(float(swh) * 3.28084, 1)} ft"
+
+    if swp and swp not in ["MM"]:
+        swell_period = f"{swp} sec"
+
+    if swd and swd not in ["MM"]:
+        buoy_dir = f"{swd}°"
+
+except Exception as e:
+    print("Buoy fetch error:", e)
+
 
 # ─────────────────────────────────────────────────────────────
 # PART 3: Image Generation
