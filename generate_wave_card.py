@@ -3,10 +3,6 @@ import re
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
-
-current_time = datetime.now().strftime("%Y-%m-%d %H:%M AST")
-draw.text((400, 860), f"Generated: {current_time}", fill=GRAY, font=font_footer, anchor="mm")
-
 from datetime import datetime
 
 
