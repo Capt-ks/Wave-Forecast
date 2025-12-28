@@ -15,7 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history for git
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -25,19 +25,28 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 pillow
 
+      - name: Remove old card (force new file)
+        run: rm -f wave_card.png || true
+
       - name: Generate card
         run: python generate_wave_card.py
 
       - name: Verify file
         run: |
-          ls -la wave_card.png || echo "File missing!"
-          du -h wave_card.png || echo "No size"
+          if [ -f wave_card.png ]; then
+            echo "Card generated!"
+            ls -la wave_card.png
+            du -h wave_card.png
+          else
+            echo "ERROR: Card NOT generated"
+            exit 1
+          fi
 
-      - name: Commit and push (force add)
+      - name: Commit and force push
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "actions@github.com"
-          git add -f wave_card.png  # Force add even if unchanged
+          git add -f wave_card.png  # Force add
           git status
           git commit -m "Update wave forecast card [auto]" --allow-empty || echo "Commit skipped"
           git push origin HEAD:main --force-with-lease || echo "Push skipped"
