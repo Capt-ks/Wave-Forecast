@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (original logic)
+# PART 1: Fetch & Parse AMZ726 Forecast (original logic, no forced "Currently")
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -47,19 +47,13 @@ try:
         cleaned = []
         for label, txt in periods:
             if label == "REST OF TONIGHT":
-                label = "TODAY"
+                label = "TONIGHT"  # Optional: keep original if desired
             cleaned.append((label, txt))
 
-        cleaned = cleaned[:6]
+        cleaned = cleaned[:7]  # Up to 7 days
 
         final_lines = []
-        first_line = True
-
         for label, txt in cleaned:
-            if first_line:
-                label = "Currently"
-                first_line = False
-
             m = re.search(
                 r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
                 txt,
@@ -73,6 +67,9 @@ try:
                 high = height + 1
                 height_str = f"{low}–{high} ft"
                 final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
+            else:
+                # If no wave detail, add the period with general text
+                final_lines.append(f"{label}: {txt[:100]}...")  # Shortened for space
 
         if final_lines:
             forecast_text = "\n".join(final_lines)
@@ -80,7 +77,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (fixed for no cellpadding, uses text search)
+# PART 2: Fetch Current Buoy 41043 Data (current working version)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -90,7 +87,6 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Find the table containing "WVHT" in its text (reliable for wave table)
     table = None
     for tbl in buoy_soup.find_all("table"):
         if "WVHT" in tbl.get_text():
@@ -100,12 +96,12 @@ try:
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")  # latest observation row
+            cols = rows[1].find_all("td")
             if len(cols) >= 5:
                 wvht = cols[1].get_text(strip=True)
-                swh = cols[2].get_text(strip=True)
-                swp = cols[3].get_text(strip=True)
-                swd = cols[4].get_text(strip=True)
+                swh  = cols[2].get_text(strip=True)
+                swp  = cols[3].get_text(strip=True)
+                swd  = cols[4].get_text(strip=True)
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -115,8 +111,6 @@ try:
                     swell_period = f"{swp} sec"
                 if swd and swd not in ["MM", "-"]:
                     buoy_dir = swd
-                else:
-                    buoy_dir = "N/A"  # or keep as "-" if preferred
 except Exception:
     pass
 
@@ -153,26 +147,29 @@ except Exception:
 
 # Fonts
 try:
-    font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
-    font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+    font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+    font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
-    font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
-    font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 28)
+    font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
+    font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 22)
 except Exception:
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
 TEXT = "#0a1a2f"
+GRAY = "#aaaaaa"
 
-# Header and forecast
-draw.text((200, 80), datetime.now().strftime("%b %d, %Y"), fill=TEXT, font=font_title)
-draw.text((400, 180), "Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
+# Header - updated for clarity
+draw.text((400, 180), "7-Day Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
+draw.text((400, 220), "(Starting from TODAY - Real-time current below)", fill=GRAY, font=font_footer, anchor="mm")
+
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
+# Forecast text (now starts with TODAY naturally)
 draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=10)
 
 # Bottom section: Current Buoy 41043
-buoy_y_title = 700  # Adjust this if overlaps (e.g., 720-780)
+buoy_y_title = 700  # Adjust if needed (increase to 720-780 for more space)
 buoy_y_value = buoy_y_title + 35
 
 draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
