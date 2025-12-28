@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast (original logic, no forced "Currently")
+# PART 1: Fetch & Parse AMZ726 Forecast – improved regex + fallback
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -22,20 +22,20 @@ try:
     text = soup.get_text("\n")
 
     pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
-    m = re.search(pattern, text, re.DOTALL)
+    m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if m:
-        block = m.group(1).replace("feet", "ft")
-        lines = block.splitlines()
+        block = m.group(1).replace("feet", "ft").replace("\n\n", "\n")
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+
         periods = []
         current_label = None
         current_text = []
 
         for line in lines:
-            line = line.strip()
-            if re.match(r"^(REST OF TONIGHT|TODAY|MON|TUE|WED|THU|FRI|SAT|SUN)", line):
+            if re.match(r"^(REST OF TONIGHT|TODAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)", line, re.I):
                 if current_label and current_text:
                     periods.append((current_label, " ".join(current_text)))
-                current_label = line
+                current_label = line.upper()  # Normalize
                 current_text = []
             else:
                 if current_label:
@@ -47,29 +47,44 @@ try:
         cleaned = []
         for label, txt in periods:
             if label == "REST OF TONIGHT":
-                label = "TONIGHT"  # Optional: keep original if desired
+                label = "TONIGHT"
             cleaned.append((label, txt))
 
-        cleaned = cleaned[:7]  # Up to 7 days
+        cleaned = cleaned[:7]  # Limit to ~7 days
 
         final_lines = []
         for label, txt in cleaned:
-            m = re.search(
-                r"Wave Detail:\s*([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
+            # Improved regex to catch Wave Detail more reliably
+            wave_match = re.search(
+                r"Wave Detail:\s*([^.]+?)(?=\.|$)",
                 txt,
-                re.I
+                re.I | re.DOTALL
             )
-            if m:
-                direction = m.group(1).upper()
-                height = int(m.group(2))
-                period = m.group(3)
-                low = height - 1
-                high = height + 1
-                height_str = f"{low}–{high} ft"
-                final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
+            if wave_match:
+                detail = wave_match.group(1).strip()
+                # Extract direction, height, period from detail
+                detail_match = re.search(
+                    r"([A-Za-z]+)\s*(\d+)\s*ft\s*at\s*(\d+)\s*seconds?",
+                    detail,
+                    re.I
+                )
+                if detail_match:
+                    direction = detail_match.group(1).upper()
+                    height = int(detail_match.group(2))
+                    period = detail_match.group(3)
+                    low = height - 1
+                    high = height + 1
+                    height_str = f"{low}–{high} ft"
+                    final_lines.append(f"{label}: {height_str} @ {period}s {direction}")
+                else:
+                    final_lines.append(f"{label}: {detail}")
             else:
-                # If no wave detail, add the period with general text
-                final_lines.append(f"{label}: {txt[:100]}...")  # Shortened for space
+                # Fallback: if no Wave Detail, show seas/wind summary
+                seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
+                if seas_match:
+                    final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
+                else:
+                    final_lines.append(f"{label}: {txt[:80]}...")
 
         if final_lines:
             forecast_text = "\n".join(final_lines)
@@ -77,7 +92,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (current working version)
+# PART 2: Fetch Current Buoy 41043 Data (stable version)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -159,17 +174,17 @@ except Exception:
 TEXT = "#0a1a2f"
 GRAY = "#aaaaaa"
 
-# Header - updated for clarity
+# Header
 draw.text((400, 180), "7-Day Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
-draw.text((400, 220), "(Starting from TODAY - Real-time current below)", fill=GRAY, font=font_footer, anchor="mm")
+draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)", fill=GRAY, font=font_footer, anchor="mm")
 
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
-# Forecast text (now starts with TODAY naturally)
+# Forecast text
 draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=10)
 
 # Bottom section: Current Buoy 41043
-buoy_y_title = 700  # Adjust if needed (increase to 720-780 for more space)
+buoy_y_title = 700  # Adjust higher if overlap occurs
 buoy_y_value = buoy_y_title + 35
 
 draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
