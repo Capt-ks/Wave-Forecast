@@ -5,6 +5,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
 from datetime import datetime
 
+print("DEBUG: Starting PART 1")
+
 # ─────────────────────────────────────────────────────────────
 # PART 1: Fetch & Parse AMZ726 Forecast – improved Wave Detail capture
 # ─────────────────────────────────────────────────────────────
@@ -21,7 +23,7 @@ try:
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text("\n")
 
-    pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
+    pattern = rf"({ZONE}.*?)(\d{{3}}|$)"
     m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if m:
         block = m.group(1).replace("feet", "ft").replace("\n\n", "\n")
@@ -61,19 +63,23 @@ try:
                 final_lines.append(f"{label}: {detail}")
             else:
                 # Fallback to seas if present
-                seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
+                seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*ft", txt, re.I)
                 if seas_match:
                     final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
                 else:
                     final_lines.append(f"{label}: {txt[:80]}...")
-
         if final_lines:
             forecast_text = "\n".join(final_lines)
-except Exception:
-    pass
+except Exception as e:
+    print("DEBUG: PART 1 error:", e)
+
+print("DEBUG: Finished PART 1")
+print("DEBUG: Forecast text preview:", forecast_text.splitlines()[0] if forecast_text else "EMPTY")
+
+print("DEBUG: Starting PART 2")
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (crash-proof version)
+# PART 2: Fetch Current Buoy 41043 Data (crash-proof spectral parser)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -117,7 +123,7 @@ try:
 
                 ts = datetime(YY, MM, DD, hh, mm)
                 parsed.append((ts, row))
-            except:
+            except Exception:
                 continue
 
         # Sort newest first
@@ -129,7 +135,7 @@ try:
             def m_to_ft(m):
                 try:
                     return round(float(m) * 3.28084, 1)
-                except:
+                except Exception:
                     return None
 
             # Extract dynamically
@@ -159,98 +165,57 @@ try:
                 buoy_dir = f"{swd}°"
 
 except Exception as e:
-    print("Buoy spec parse error:", e)
+    print("DEBUG: PART 2 error (spec parser):", e)
 
+print("DEBUG: Finished PART 2:", sig_height, swell_height, swell_period, buoy_dir)
+
+print("DEBUG: Starting PART 3")
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation (fixed, safe, guaranteed output)
+# PART 3: Image Generation
 # ─────────────────────────────────────────────────────────────
-
-# 1. Load background safely
 try:
-    bg_url = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80"
-    bg_data = requests.get(bg_url, timeout=20).content
+    print("DEBUG: Fetching background image")
+    bg_data = requests.get(
+        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80",
+        timeout=20
+    ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
 except Exception as e:
-    print("Background failed:", e)
+    print("DEBUG: Background load failed, using solid color:", e)
     bg = Image.new("RGB", (800, 950), "#004488")
 
 bg = bg.resize((800, 950))
-bg = ImageEnhance.Brightness(bg).enhance(1.12)
+enhancer = ImageEnhance.Brightness(bg)
+bg = enhancer.enhance(1.12)
 
-# 2. Create overlay + card
 overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
 card = Image.alpha_composite(bg.convert("RGBA"), overlay)
 draw = ImageDraw.Draw(card)
 
-# 3. Load logo safely
-try:
-    logo_url = "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png"
-    logo_data = requests.get(logo_url, timeout=20).content
-    logo = Image.open(io.BytesIO(logo_data)).convert("RGBA").resize((120, 120))
-    card.paste(logo, (40, 40), logo)
-except Exception as e:
-    print("Logo failed:", e)
-
-# 4. Fonts
-try:
-    font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
-    font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
-    font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
-    font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
-    font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)
-except:
-    font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
-
-TEXT = "#0a1a2f"
-GRAY = "#aaaaaa"
-
-# 5. Header
-draw.text((400, 180), "7-Day Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
-draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)", fill=GRAY, font=font_footer, anchor="mm")
-draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
-
-# 6. Forecast text
-draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=12)
-
-# 7. Buoy box
-buoy_y_title = 700
-buoy_y_value = buoy_y_title + 35
-draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
-draw.text((80, buoy_y_title), "Current (Buoy 41043 – NE Puerto Rico)", fill="white", font=font_buoy)
-buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
-draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
-
-# 8. Footer
-footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
-draw.text((400, 880), footer_line, fill=TEXT, font=font_footer, anchor="mm")
-
-# 9. Save card
-card.convert("RGB").save("wave_card.png", optimize=True)
-print("Card generated successfully.")
-
-
 # Logo
 try:
+    print("DEBUG: Fetching logo")
     logo_data = requests.get(
         "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
         timeout=20
     ).content
     logo = Image.open(io.BytesIO(logo_data)).convert("RGBA").resize((120, 120))
     card.paste(logo, (40, 40), logo)
-except Exception:
-    pass
+except Exception as e:
+    print("DEBUG: Logo load failed, continuing without logo:", e)
 
 # Fonts
 try:
+    print("DEBUG: Loading fonts")
     font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
     font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
     font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)
-except Exception:
+except Exception as e:
+    print("DEBUG: Font load failed, using default fonts:", e)
     font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
 TEXT = "#0a1a2f"
@@ -271,7 +236,7 @@ draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, 
 draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=12)
 
 # Bottom section: Current Buoy 41043
-buoy_y_title = 700 # Increase to 740–780 if overlap occurs
+buoy_y_title = 700  # Increase to 740–780 if overlap occurs
 buoy_y_value = buoy_y_title + 35
 draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
 draw.text((80, buoy_y_title), "Current (Buoy 41043 – NE Puerto Rico)", fill="white", font=font_buoy)
@@ -287,4 +252,11 @@ draw.text(
     font=font_footer,
     anchor="mm"
 )
-card.convert("RGB").save("wave_card.png", optimize=True)
+
+print("DEBUG: Saving card now")
+
+try:
+    card.convert("RGB").save("wave_card.png", optimize=True)
+    print("DEBUG: Card saved successfully as wave_card.png")
+except Exception as e:
+    print("DEBUG: Error saving card:", e)
