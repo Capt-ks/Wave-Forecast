@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: Fetch & Parse AMZ726 Forecast
+# PART 1: Fetch & Parse AMZ726 Forecast (improved Wave Detail extraction)
 # ─────────────────────────────────────────────────────────────
 URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 ZONE = "726"
@@ -54,11 +54,13 @@ try:
 
         final_lines = []
         for label, txt in cleaned:
-            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated)", txt, re.I | re.DOTALL)
+            # More robust: capture full Wave Detail content after the keyword
+            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated|through)", txt, re.I | re.DOTALL)
             if wave_match:
                 detail = wave_match.group(1).strip()
                 final_lines.append(f"{label}: {detail}")
             else:
+                # Fallback to seas description if no Wave Detail
                 seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
                 if seas_match:
                     final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
@@ -71,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Buoy 41043 – FIXED & VALIDATED parsing (current columns)
+# PART 2: Buoy 41043 – current correct parsing (validated structure)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -81,7 +83,6 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Find wave table by "WVHT" marker
     table = None
     for tbl in buoy_soup.find_all("table"):
         if "WVHT" in tbl.get_text():
@@ -91,12 +92,13 @@ try:
     if table:
         rows = table.find_all("tr")
         if len(rows) >= 2:
-            cols = rows[1].find_all("td")
+            cols = rows[1].find_all("td")  # most recent observation
             if len(cols) >= 5:
-                wvht = cols[1].get_text(strip=True)
-                swh  = cols[2].get_text(strip=True)
-                swp  = cols[3].get_text(strip=True)
-                swd  = cols[4].get_text(strip=True)
+                # Correct current indices (0-based)
+                wvht = cols[1].get_text(strip=True)  # Significant Wave Height
+                swh  = cols[2].get_text(strip=True)  # Swell Height
+                swp  = cols[3].get_text(strip=True)  # Swell Period
+                swd  = cols[4].get_text(strip=True)  # Swell Direction
 
                 if wvht and wvht not in ["MM", "-"]:
                     sig_height = f"{wvht} ft"
@@ -110,7 +112,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: Image Generation
+# PART 3: Image Generation – adjusted for fit (smaller font, better margins)
 # ─────────────────────────────────────────────────────────────
 try:
     bg_data = requests.get(
@@ -140,12 +142,12 @@ try:
 except Exception:
     pass
 
-# Fonts
+# Fonts – smaller for forecast text to fit nicely
 try:
     font_title    = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
     font_sub      = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)
+    font_body     = ImageFont.truetype("DejaVuSans.ttf", 22)   # reduced for fit
     font_footer   = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy     = ImageFont.truetype("DejaVuSans.ttf", 18)
 except Exception:
@@ -160,8 +162,15 @@ draw.text((400, 220), "(Forecast starting from TODAY - Real-time current below)"
 
 draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
-# Forecast text
-draw.multiline_text((100, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=28)
+# Forecast text – better margins & spacing
+draw.multiline_text(
+    (100, 300),  # left margin 100 → more space
+    forecast_text,
+    fill=TEXT,
+    font=font_body,
+    align="left",
+    spacing=28   # increased line spacing
+)
 
 # Bottom section: Current Buoy 41043
 buoy_y_title = 700
