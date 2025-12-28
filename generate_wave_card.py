@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (realtime2 feed – reliable)
+# PART 2: Fetch Current Buoy 41043 Data (realtime2, header-based)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -84,38 +84,54 @@ try:
 
     lines = r.text.splitlines()
 
-    # Skip header lines starting with '#'
-    data_lines = [ln for ln in lines if not ln.startswith("#")]
+    header_tokens = None
+    data_line = None
 
-    if len(data_lines) >= 1:
-        parts = data_lines[0].split()
+    # Find header (#YY ...) and first data line after it
+    for ln in lines:
+        if ln.startswith("#YY"):
+            header_tokens = ln.lstrip("#").split()
+            continue
+        if header_tokens and not ln.startswith("#") and ln.strip():
+            data_line = ln
+            break
 
-        # realtime2 format:
-        # YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP DEWP VIS TIDE
+    if header_tokens and data_line:
+        parts = data_line.split()
 
-        if len(parts) >= 12:
-            wvht = parts[7]   # Significant Wave Height (meters)
-            dpd  = parts[8]   # Dominant Wave Period (seconds)
-            mwd  = parts[11]  # Mean Wave Direction (degrees)
+        # Helper: get index of a column by name
+        def idx(name):
+            try:
+                return header_tokens.index(name)
+            except ValueError:
+                return None
 
-            # Convert meters → feet
-            def m_to_ft(m):
-                try:
-                    return round(float(m) * 3.28084, 1)
-                except:
-                    return None
+        i_wvht = idx("WVHT")   # significant wave height (m)
+        i_dpd  = idx("DPD")    # dominant wave period (s)
+        i_mwd  = idx("MWD")    # mean wave direction (degT)
 
-            if wvht not in ["MM", "99.00"]:
-                sig_height = f"{m_to_ft(wvht)} ft"
+        wvht = parts[i_wvht] if i_wvht is not None and i_wvht < len(parts) else None
+        dpd  = parts[i_dpd]  if i_dpd  is not None and i_dpd  < len(parts) else None
+        mwd  = parts[i_mwd]  if i_mwd  is not None and i_mwd  < len(parts) else None
 
-            # Swell height is not directly given; use WVHT as fallback
-            swell_height = sig_height
+        def m_to_ft(m):
+            try:
+                return round(float(m) * 3.28084, 1)
+            except:
+                return None
 
-            if dpd not in ["MM", "99"]:
-                swell_period = f"{dpd} sec"
+        # WVHT is in meters in realtime2 files
+        if wvht and wvht not in ["MM", "99.00"]:
+            h_ft = m_to_ft(wvht)
+            if h_ft is not None:
+                sig_height = f"{h_ft} ft"
+                swell_height = f"{h_ft} ft"  # no separate SwH in realtime2; spec file has that
 
-            if mwd not in ["MM", "999"]:
-                buoy_dir = mwd
+        if dpd and dpd not in ["MM", "99"]:
+            swell_period = f"{dpd} sec"
+
+        if mwd and mwd not in ["MM", "999"]:
+            buoy_dir = f"{mwd}°"
 
 except Exception as e:
     print("Buoy parse error:", e)
