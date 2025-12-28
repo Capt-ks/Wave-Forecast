@@ -73,7 +73,7 @@ except Exception:
     pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: Fetch Current Buoy 41043 Data (validated for current page, with correct table selection)
+# PART 2: Fetch Current Buoy 41043 Data (alternative way – search for full header row)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
@@ -83,11 +83,11 @@ try:
     buoy_r.raise_for_status()
     buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    # Select the table containing "WVHT ft" in the header row
     table = None
     for tbl in buoy_soup.find_all("table"):
+        # Check if the header row contains "WVHT ft" or "Significant Wave Height"
         header_row = tbl.find("tr")
-        if header_row and "WVHT ft" in header_row.get_text():
+        if header_row and ("WVHT ft" in header_row.get_text() or "Significant Wave Height" in header_row.get_text()):
             table = tbl
             break
 
