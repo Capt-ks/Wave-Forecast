@@ -3,124 +3,185 @@ import re
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
+from datetime import datetime
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: AMZ726 FORECAST (REAL FIX)
+# PART 1: Fetch & Parse AMZ726 Forecast – improved Wave Detail capture
 # ─────────────────────────────────────────────────────────────
-forecast_text = "Wave forecast temporarily unavailable."
+URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
+ZONE = "726"
+FALLBACK = "Wave forecast temporarily unavailable."
+
+forecast_text = FALLBACK
 
 try:
-    r = requests.get(
-        "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html",
-        timeout=20
-    )
+    r = requests.get(URL, timeout=20)
     r.raise_for_status()
-    soup = BeautifulSoup(r.text, "html.parser")
+    html = r.text
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n")
 
-    pre = soup.find("pre")
-    text = pre.get_text("\n") if pre else ""
-
-    m = re.search(r"(AMZ726-.*?)(?=\nAMZ\d{3}-|\Z)", text, re.DOTALL)
-
+    pattern = rf"({ZONE}.*?)(\\d{{3}}|$)"
+    m = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if m:
-        block = m.group(1)
-        lines = [l.strip() for l in block.splitlines() if l.strip()]
+        block = m.group(1).replace("feet", "ft").replace("\n\n", "\n")
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
 
         periods = []
-        label = None
-        buf = []
+        current_label = None
+        current_text = []
 
         for line in lines:
-            if re.match(r"^(TODAY|TONIGHT|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)", line):
-                if label:
-                    periods.append((label, " ".join(buf)))
-                label = line
-                buf = []
+            if re.match(r"^(REST OF TONIGHT|TODAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)", line, re.I):
+                if current_label and current_text:
+                    periods.append((current_label.upper(), " ".join(current_text)))
+                current_label = line
+                current_text = []
             else:
-                buf.append(line)
+                if current_label:
+                    current_text.append(line)
 
-        if label:
-            periods.append((label, " ".join(buf)))
+        if current_label and current_text:
+            periods.append((current_label.upper(), " ".join(current_text)))
 
-        out = []
-        for label, txt in periods[:7]:
-            wave = re.search(r"Wave Detail:\s*(.+?)(?=\.|$)", txt)
-            seas = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt)
+        cleaned = []
+        for label, txt in periods:
+            if label == "REST OF TONIGHT":
+                label = "TONIGHT"
+            cleaned.append((label, txt))
 
-            if wave:
-                out.append(f"{label}: {wave.group(1)}")
-            elif seas:
-                out.append(f"{label}: Seas {seas.group(1)}–{seas.group(2)} ft")
+        cleaned = cleaned[:7]
+
+        final_lines = []
+        for label, txt in cleaned:
+            # Capture everything after "Wave Detail:" (more flexible)
+            wave_match = re.search(r"Wave Detail:\s*(.+?)(?=\.|$|Scattered|Isolated)", txt, re.I | re.DOTALL)
+            if wave_match:
+                detail = wave_match.group(1).strip()
+                final_lines.append(f"{label}: {detail}")
             else:
-                out.append(f"{label}: {txt[:80]}...")
+                # Fallback to seas if present
+                seas_match = re.search(r"Seas\s*(\d+)\s*to\s*(\d+)\s*feet", txt, re.I)
+                if seas_match:
+                    final_lines.append(f"{label}: Seas {seas_match.group(1)}–{seas_match.group(2)} ft")
+                else:
+                    final_lines.append(f"{label}: {txt[:80]}...")
 
-        if out:
-            forecast_text = "\n".join(out)
-
-except Exception as e:
-    print("FORECAST ERROR:", e)
+        if final_lines:
+            forecast_text = "\n".join(final_lines)
+except Exception:
+    pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: BUOY 41043 (COMMENT-AWARE)
+# PART 2: Fetch Current Buoy 41043 Data (stable)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
-
 try:
-    r = requests.get(
-        "https://www.ndbc.noaa.gov/data/realtime2/41043.txt",
-        timeout=15
-    )
-    r.raise_for_status()
+    buoy_url = "https://www.ndbc.noaa.gov/station_page.php?station=41043"
+    buoy_r = requests.get(buoy_url, timeout=15)
+    buoy_r.raise_for_status()
+    buoy_soup = BeautifulSoup(buoy_r.text, "html.parser")
 
-    lines = [l for l in r.text.splitlines() if not l.startswith("#")]
-    header = lines[0].split()
-    data = lines[1].split()
+    table = None
+    for tbl in buoy_soup.find_all("table"):
+        if "SwH" in tbl.get_text() or "SwP" in tbl.get_text() or "Significant Wave Height" in tbl.get_text():
+            table = tbl
+            break
 
-    def get(*keys):
-        for k in keys:
-            if k in header:
-                v = data[header.index(k)]
-                if v != "MM":
-                    return v
-        return None
-
-    wvht = get("WVHT")
-    period = get("SwP", "DPD")
-    direction = get("SwD", "MWD")
-
-    if wvht:
-        sig_height = swell_height = f"{round(float(wvht) * 3.28084, 1)} ft"
-    if period:
-        swell_period = f"{period} sec"
-    if direction:
-        buoy_dir = f"{direction}°"
-
-except Exception as e:
-    print("BUOY ERROR:", e)
+    if table:
+        rows = table.find_all("tr")
+        if len(rows) >= 2:
+            cols = rows[1].find_all("td")
+            if len(cols) >= 5:
+                wvht = cols[1].get_text(strip=True)
+                swh = cols[2].get_text(strip=True)
+                swp = cols[3].get_text(strip=True)
+                swd = cols[4].get_text(strip=True)
+                if wvht and wvht not in ["MM", "-"]:
+                    sig_height = f"{wvht} ft"
+                if swh and swh not in ["MM", "-"]:
+                    swell_height = f"{swh} ft"
+                if swp and swp not in ["MM", "-"]:
+                    swell_period = f"{swp} sec"
+                if swd and swd not in ["MM", "-"]:
+                    buoy_dir = swd
+except Exception:
+    pass
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: IMAGE (KNOWN GOOD)
+# PART 3: Image Generation
 # ─────────────────────────────────────────────────────────────
-bg = Image.new("RGB", (800, 950), "#004488")
-bg = ImageEnhance.Brightness(bg).enhance(1.1)
-card = Image.alpha_composite(
-    bg.convert("RGBA"),
-    Image.new("RGBA", bg.size, (255, 255, 255, 40))
-)
+try:
+    bg_data = requests.get(
+        "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+        timeout=20
+    ).content
+    bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
+except Exception:
+    bg = Image.new("RGB", (800, 950), "#004488")
+
+bg = bg.resize((800, 950))
+enhancer = ImageEnhance.Brightness(bg)
+bg = enhancer.enhance(1.12)
+
+overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
+card = Image.alpha_composite(bg.convert("RGBA"), overlay)
 draw = ImageDraw.Draw(card)
 
-font = ImageFont.load_default()
+# Logo
+try:
+    logo_data = requests.get(
+        "https://static.wixstatic.com/media/80c250_b1146919dfe046429a96648c59e2c413~mv2.png",
+        timeout=20
+    ).content
+    logo = Image.open(io.BytesIO(logo_data)).convert("RGBA").resize((120, 120))
+    card.paste(logo, (40, 40), logo)
+except Exception:
+    pass
 
-draw.text((400, 80), "7-Day Wave Forecast", anchor="mm", fill="white", font=font)
-draw.multiline_text((80, 150), forecast_text, fill="white", font=font, spacing=6)
+# Fonts
+try:
+    font_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 36)
+    font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
+    font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
+    font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
+    font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
+    font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)
+except Exception:
+    font_title = font_sub = font_location = font_body = font_footer = font_buoy = ImageFont.load_default()
 
-draw.rectangle([(60,700),(740,760)], fill=(0,20,60,180))
-draw.text((80,710), "Current – Buoy 41043", fill="white", font=font)
+TEXT = "#0a1a2f"
+GRAY = "#aaaaaa"
+
+# Header with clarification
+draw.text((400, 180), "7-Day Wave Forecast", fill=TEXT, font=font_sub, anchor="mm")
 draw.text(
-    (80,735),
-    f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}",
-    fill="#a0d0ff",
-    font=font
+    (400, 220),
+    "(Forecast starting from TODAY - Real-time current below)",
+    fill=GRAY,
+    font=font_footer,
+    anchor="mm"
 )
+draw.text((400, 240), "Coastal waters east of Puerto Rico (AMZ726)", fill=TEXT, font=font_location, anchor="mm")
 
+# Forecast text
+draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, align="left", spacing=12)
+
+# Bottom section: Current Buoy 41043
+buoy_y_title = 700 # Increase to 740–780 if overlap occurs
+buoy_y_value = buoy_y_title + 35
+draw.rectangle([(60, buoy_y_title - 20), (740, buoy_y_value + 40)], fill=(0, 20, 60, 140))
+draw.text((80, buoy_y_title), "Current (Buoy 41043 – NE Puerto Rico)", fill="white", font=font_buoy)
+buoy_text = f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}"
+draw.text((80, buoy_y_value), buoy_text, fill="#a0d0ff", font=font_buoy)
+
+# Footer
+footer_line = "NDBC Marine Forecast | RabirubiaWeather.com | Updated every 6 hours"
+draw.text(
+    (400, 880),
+    footer_line,
+    fill=TEXT,
+    font=font_footer,
+    anchor="mm"
+)
 card.convert("RGB").save("wave_card.png", optimize=True)
