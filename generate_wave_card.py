@@ -5,19 +5,22 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
 
 # ─────────────────────────────────────────────────────────────
-# PART 1: AMZ726 FORECAST (CORRECT SOURCE + MATCH)
+# PART 1: AMZ726 FORECAST (REAL FIX)
 # ─────────────────────────────────────────────────────────────
-URL = "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html"
 forecast_text = "Wave forecast temporarily unavailable."
 
 try:
-    r = requests.get(URL, timeout=20)
+    r = requests.get(
+        "https://www.ndbc.noaa.gov/data/Forecasts/FZCA52.TJSJ.html",
+        timeout=20
+    )
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
-    text = soup.get_text("\n")
 
-    pattern = r"(AMZ726-.*?)(?=AMZ\d{3}-|$)"
-    m = re.search(pattern, text, re.DOTALL)
+    pre = soup.find("pre")
+    text = pre.get_text("\n") if pre else ""
+
+    m = re.search(r"(AMZ726-.*?)(?=\nAMZ\d{3}-|\Z)", text, re.DOTALL)
 
     if m:
         block = m.group(1)
@@ -25,19 +28,19 @@ try:
 
         periods = []
         label = None
-        content = []
+        buf = []
 
         for line in lines:
             if re.match(r"^(TODAY|TONIGHT|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)", line):
                 if label:
-                    periods.append((label, " ".join(content)))
+                    periods.append((label, " ".join(buf)))
                 label = line
-                content = []
+                buf = []
             else:
-                content.append(line)
+                buf.append(line)
 
         if label:
-            periods.append((label, " ".join(content)))
+            periods.append((label, " ".join(buf)))
 
         out = []
         for label, txt in periods[:7]:
@@ -58,15 +61,18 @@ except Exception as e:
     print("FORECAST ERROR:", e)
 
 # ─────────────────────────────────────────────────────────────
-# PART 2: BUOY 41043 (REAL NOAA FIELD FALLBACKS)
+# PART 2: BUOY 41043 (COMMENT-AWARE)
 # ─────────────────────────────────────────────────────────────
 sig_height = swell_height = swell_period = buoy_dir = "N/A"
 
 try:
-    r = requests.get("https://www.ndbc.noaa.gov/data/realtime2/41043.txt", timeout=15)
+    r = requests.get(
+        "https://www.ndbc.noaa.gov/data/realtime2/41043.txt",
+        timeout=15
+    )
     r.raise_for_status()
 
-    lines = r.text.strip().splitlines()
+    lines = [l for l in r.text.splitlines() if not l.startswith("#")]
     header = lines[0].split()
     data = lines[1].split()
 
@@ -79,29 +85,28 @@ try:
         return None
 
     wvht = get("WVHT")
-    swp = get("SwP", "DPD")
-    swd = get("SwD", "MWD")
+    period = get("SwP", "DPD")
+    direction = get("SwD", "MWD")
 
     if wvht:
-        sig_height = f"{round(float(wvht) * 3.28084, 1)} ft"
-        swell_height = sig_height
-
-    if swp:
-        swell_period = f"{swp} sec"
-
-    if swd:
-        buoy_dir = f"{swd}°"
+        sig_height = swell_height = f"{round(float(wvht) * 3.28084, 1)} ft"
+    if period:
+        swell_period = f"{period} sec"
+    if direction:
+        buoy_dir = f"{direction}°"
 
 except Exception as e:
     print("BUOY ERROR:", e)
 
 # ─────────────────────────────────────────────────────────────
-# PART 3: IMAGE (UNCHANGED, WORKING)
+# PART 3: IMAGE (KNOWN GOOD)
 # ─────────────────────────────────────────────────────────────
 bg = Image.new("RGB", (800, 950), "#004488")
 bg = ImageEnhance.Brightness(bg).enhance(1.1)
-card = Image.alpha_composite(bg.convert("RGBA"),
-                             Image.new("RGBA", bg.size, (255,255,255,40)))
+card = Image.alpha_composite(
+    bg.convert("RGBA"),
+    Image.new("RGBA", bg.size, (255, 255, 255, 40))
+)
 draw = ImageDraw.Draw(card)
 
 font = ImageFont.load_default()
@@ -111,8 +116,11 @@ draw.multiline_text((80, 150), forecast_text, fill="white", font=font, spacing=6
 
 draw.rectangle([(60,700),(740,760)], fill=(0,20,60,180))
 draw.text((80,710), "Current – Buoy 41043", fill="white", font=font)
-draw.text((80,735),
-          f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}",
-          fill="#a0d0ff", font=font)
+draw.text(
+    (80,735),
+    f"Sig: {sig_height} | Swell: {swell_height} | {swell_period} | {buoy_dir}",
+    fill="#a0d0ff",
+    font=font
+)
 
 card.convert("RGB").save("wave_card.png", optimize=True)
