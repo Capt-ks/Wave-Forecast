@@ -310,7 +310,7 @@ except:
 try:
     font_sub = ImageFont.truetype("DejaVuSans.ttf", 40)
     font_location = ImageFont.truetype("DejaVuSans.ttf", 26)
-    font_body = ImageFont.truetype("DejaVuSans.ttf", 28)
+    font_body = ImageFont.truetype("DejaVuSans.ttf", 22)
     font_footer = ImageFont.truetype("DejaVuSans.ttf", 18)
     font_buoy = ImageFont.truetype("DejaVuSans.ttf", 22)
 except:
@@ -338,7 +338,7 @@ draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing
 # -------------------------------------------------------------
 # BUOY 41043 BOX (moved further upward)
 # -------------------------------------------------------------
-buoy1_y_title = 560        # was 600
+buoy1_y_title = 530        # was 600
 buoy1_y_value = buoy1_y_title + 35
 
 draw.rectangle([(60, buoy1_y_title - 20), (740, buoy1_y_value + 80)], fill=(0, 20, 60, 140))
