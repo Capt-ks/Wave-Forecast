@@ -286,9 +286,9 @@ try:
     ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
 except:
-    bg = Image.new("RGB", (800, 930), "#004488")
+    bg = Image.new("RGB", (800, 910), "#004488")
 
-bg = bg.resize((800, 930))
+bg = bg.resize((800, 910))
 bg = ImageEnhance.Brightness(bg).enhance(1.12)
 
 overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
@@ -338,7 +338,7 @@ draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing
 # -------------------------------------------------------------
 # BUOY 41043 BOX (moved further upward)
 # -------------------------------------------------------------
-buoy1_y_title = 530        # was 600
+buoy1_y_title = 510        # was 560
 buoy1_y_value = buoy1_y_title + 35
 
 draw.rectangle([(60, buoy1_y_title - 20), (740, buoy1_y_value + 80)], fill=(0, 20, 60, 140))
@@ -370,7 +370,7 @@ draw.text((80, buoy2_y_value + 35), f"Last updated: {last_update_56}", fill="#ff
 # -------------------------------------------------------------
 # FOOTER
 # -------------------------------------------------------------
-draw.text((400, 880), "RabirubiaWeather.com • Updated every 4 hours", fill=TEXT, font=font_footer, anchor="mm")
+draw.text((400, 850), "RabirubiaWeather.com • Updated every 4 hours", fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)
 print("DEBUG: Card saved successfully as wave_card.png")
