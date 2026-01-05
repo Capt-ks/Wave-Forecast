@@ -286,9 +286,9 @@ try:
     ).content
     bg = Image.open(io.BytesIO(bg_data)).convert("RGB")
 except:
-    bg = Image.new("RGB", (800, 950), "#004488")
+    bg = Image.new("RGB", (800, 930), "#004488")
 
-bg = bg.resize((800, 950))
+bg = bg.resize((800, 930))
 bg = ImageEnhance.Brightness(bg).enhance(1.12)
 
 overlay = Image.new("RGBA", bg.size, (255, 255, 255, 40))
