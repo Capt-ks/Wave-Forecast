@@ -279,6 +279,11 @@ print("DEBUG: Finished PART 2B:", sig_height_56, swell_height_56, swell_period_5
 # -------------------------------------------------------------
 print("DEBUG: Starting PART 3")
 
+# -------------------------------------------------------------
+# Timestamp (AST) for when the card was generated
+# -------------------------------------------------------------
+now_ast = datetime.now().strftime("%b %d, %Y at %H:%M AST")
+
 try:
     bg_data = requests.get(
         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80",
@@ -332,8 +337,8 @@ draw.text(
 draw.text((400, 220), "Today • Tonight • Tomorrow", fill="#555555", font=font_footer, anchor="mm")
 
 # Forecast text
-draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing=12)
 
+draw.multiline_text((80, 300), forecast_text, fill=TEXT, font=font_body, spacing=12)
 
 # -------------------------------------------------------------
 # BUOY 41043 BOX (moved further upward)
@@ -370,7 +375,9 @@ draw.text((80, buoy2_y_value + 35), f"Last updated: {last_update_56}", fill="#ff
 # -------------------------------------------------------------
 # FOOTER
 # -------------------------------------------------------------
-draw.text((400, 850), "RabirubiaWeather.com • Updated every 4 hours", fill=TEXT, font=font_footer, anchor="mm")
+
+footer_text = f"RabirubiaWeather.com • {now_ast} • Updated every 4 hours"
+draw.text((400, 850), footer_text, fill=TEXT, font=font_footer, anchor="mm")
 
 card.convert("RGB").save("wave_card.png", optimize=True)
 print("DEBUG: Card saved successfully as wave_card.png")
