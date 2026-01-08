@@ -3,7 +3,7 @@ import re
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import io
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # -------------------------------------------------------------
 # Helper: Convert meters → feet
@@ -282,7 +282,9 @@ print("DEBUG: Starting PART 3")
 # -------------------------------------------------------------
 # Timestamp (AST) for when the card was generated
 # -------------------------------------------------------------
-now_ast = datetime.now().strftime("%b %d, %Y at %H:%M AST")
+AST = timezone(timedelta(hours=-4))
+now_ast = datetime.now(AST).strftime("%b %d, %Y at %H:%M AST")
+
 
 try:
     bg_data = requests.get(
